@@ -1,5 +1,19 @@
 ## ADDED Requirements
 
+### Requirement: Compact speech recordings
+
+The recorder SHALL offer single-channel Opus at 24 and 32 kbps. It SHALL preserve the selected bitrate and channel count in saved settings.
+
+#### Scenario: Record speech for transcription
+
+- **WHEN** the user records the same speech in 32 kbps mono and 128 kbps stereo Opus
+- **THEN** the mono file is smaller and contains the entire spoken passage after decoding
+
+#### Scenario: Save a compact speech preset
+
+- **WHEN** the user saves a preset with 24 kbps mono Opus and reloads it
+- **THEN** the recorder restores those settings and permits recording
+
 ### Requirement: File modes and a shared timeline
 
 The recorder SHALL offer separate files, a combined file, and both. It SHALL align each source on a common session timeline.

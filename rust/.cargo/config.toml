@@ -1,0 +1,10 @@
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[env]
+# Use the same CRT for bundled C codecs and the Rust executable. Some
+# upstream CMake generators otherwise select /MD even for a static archive.
+_CL_ = "/MT"

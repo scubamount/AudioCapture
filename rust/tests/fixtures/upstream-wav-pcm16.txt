@@ -1,0 +1,10 @@
+The adjacent WAV is a synthetic output comparison fixture.
+
+It was produced with the original C++ WavWriter from upstream commit
+a7fdb4e822bde95e462827cccca55fb008c0c5ae, compiled with MSVC.
+The writer received 48 kHz, two-channel, 16-bit PCM. The input samples were
+0, 0, 8192, -8192, 32767, -32767, -8192, 8192, 16384, -16384, 0, 0.
+The writer received the first four samples and the remaining eight samples
+in separate calls. The Rust test parses each container's data chunk and
+compares the PCM bytes. The original fmt chunk has 18 bytes. The Rust fmt
+chunk has 16 bytes. Both identify PCM with the same rate and channel count.

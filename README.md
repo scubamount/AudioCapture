@@ -1,5 +1,7 @@
 # Audio Capture - Per-Process Audio Recording
 
+This fork includes a [Rust recorder for Windows 11](rust/README.md) with native controls, selectable WAV sample rates, and compact mono Opus recording. The instructions below describe the original C++ program.
+
 A Windows application for capturing audio from individual processes using WASAPI (Windows Audio Session API). Records audio to WAV, MP3, Opus, or FLAC formats with an accessible Win32 interface. Fully self-contained with no external DLL dependencies.
 
 ## Full Disclosure
