@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="436" viewBox="0 0 800 436" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Storage for the same two speech tracks</title>
+<desc id="desc">32 kbps: regular Opus 157,593 bytes, speech DTX 69,173 bytes. 24 kbps: regular Opus 119,546 bytes, speech DTX 53,271 bytes.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="436.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Storage for the same two speech tracks</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">2 simultaneous mono tracks  ·  29.088 seconds each</text>
+<text x="198.00" y="122.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Combined file size in kB  ·  1 kB = 1,000 bytes</text>
+<line x1="198.00" y1="156.00" x2="198.00" y2="372.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="198.00" y="147.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="317.25" y1="156.00" x2="317.25" y2="372.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="317.25" y="147.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">40</text>
+<line x1="436.50" y1="156.00" x2="436.50" y2="372.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="436.50" y="147.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80</text>
+<line x1="555.75" y1="156.00" x2="555.75" y2="372.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="555.75" y="147.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">120</text>
+<line x1="675.00" y1="156.00" x2="675.00" y2="372.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="675.00" y="147.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">160</text>
+<text x="32.00" y="185.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">32 kbps</text>
+<text x="48.00" y="211.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Regular Opus</text>
+<rect x="198.00" y="196.00" width="469.82" height="18.00" fill="#00685f"/>
+<text x="676.82" y="211.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">157,593 B</text>
+<text x="48.00" y="244.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Speech DTX</text>
+<rect x="198.00" y="229.00" width="206.22" height="18.00" fill="url(#hatch)"/>
+<text x="413.22" y="244.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">69,173 B</text>
+<text x="32.00" y="300.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">24 kbps</text>
+<text x="48.00" y="326.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Regular Opus</text>
+<rect x="198.00" y="311.00" width="356.40" height="18.00" fill="#00685f"/>
+<text x="563.40" y="326.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">119,546 B</text>
+<text x="48.00" y="359.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Speech DTX</text>
+<rect x="198.00" y="344.00" width="158.81" height="18.00" fill="url(#hatch)"/>
+<text x="365.81" y="359.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">53,271 B</text>
+<text x="32.00" y="410.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Speech DTX enables discontinuous transmission and selects the Opus voice mode.</text>
+</svg>

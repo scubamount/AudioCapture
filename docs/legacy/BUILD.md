@@ -22,7 +22,7 @@ $env:VCPKG_ROOT = 'C:\vcpkg'
 .\build.bat
 ```
 
-The script configures x64 with `x64-windows-static`. It builds Release and stages `package\AudioCapture.exe`. It copies the C++ user guide to `package\README.md`. The executable uses static codecs and the static C++ runtime. The release workflow also installs dependencies in the overlay triplet `x64-windows-static-mt`. The batch build itself uses the standard triplet.
+The script configures x64 with `x64-windows-static`. It builds Release and stages `package\AudioCapture.exe`. It copies the C++ user guide to `package\README.md`. The executable uses static codecs and the static C++ runtime. The manual GitHub workflow uses the same triplet and uploads the staged files as an Actions artifact. [Legacy workflow](../../.github/workflows/ci.yml)
 
 To create a ZIP like the C++ release, run this command after staging.
 

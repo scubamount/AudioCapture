@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="433" viewBox="0 0 800 433" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Automatic names by evidence source</title>
+<desc id="desc">Reference labels: 22 of 23 introductions and 21 of 21 contextual names recognized. 0 wrong out of 130 automatically named turns. TitaNet, separate tracks: 15 of 23 introductions and 15 of 21 contextual names recognized. 0 wrong out of 90 automatically named turns. TitaNet, single mix: 0 of 23 introductions and 0 of 21 contextual names recognized. 0 wrong out of 0 automatically named turns.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="433.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Automatic names by evidence source</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">Eligible naming opportunities in the synthetic calls</text>
+<rect x="32.00" y="103.00" width="22.00" height="12.00" fill="#00685f"/>
+<text x="63.00" y="115.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Correct automatic name</text>
+<rect x="291.00" y="103.00" width="22.00" height="12.00" fill="url(#hatch)"/>
+<text x="322.00" y="115.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Abstained</text>
+<text x="32.00" y="163.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Speaker evidence</text>
+<text x="240.00" y="163.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Introductions</text>
+<text x="424.00" y="163.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Contextual names</text>
+<text x="613.00" y="163.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Wrong / named turns</text>
+<line x1="32.00" y1="180.00" x2="768.00" y2="180.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="32.00" y="211.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Reference labels</text>
+<text x="240.00" y="205.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">22 / 23</text>
+<rect x="240.00" y="213.00" width="139.65" height="10.00" fill="#00685f"/>
+<rect x="379.65" y="213.00" width="6.35" height="10.00" fill="url(#hatch)"/>
+<text x="240.00" y="242.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">1 abstained</text>
+<text x="424.00" y="205.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">21 / 21</text>
+<rect x="424.00" y="213.00" width="146.00" height="10.00" fill="#00685f"/>
+<rect x="570.00" y="213.00" width="0.00" height="10.00" fill="url(#hatch)"/>
+<text x="424.00" y="242.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">0 abstained</text>
+<text x="613.00" y="207.00" fill="#172e35" font-size="18" font-weight="700" text-anchor="start">0 / 130</text>
+<line x1="32.00" y1="252.00" x2="768.00" y2="252.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="32.00" y="283.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">TitaNet, separate tracks</text>
+<text x="240.00" y="277.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">15 / 23</text>
+<rect x="240.00" y="285.00" width="95.22" height="10.00" fill="#00685f"/>
+<rect x="335.22" y="285.00" width="50.78" height="10.00" fill="url(#hatch)"/>
+<text x="240.00" y="314.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">8 abstained</text>
+<text x="424.00" y="277.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">15 / 21</text>
+<rect x="424.00" y="285.00" width="104.29" height="10.00" fill="#00685f"/>
+<rect x="528.29" y="285.00" width="41.71" height="10.00" fill="url(#hatch)"/>
+<text x="424.00" y="314.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">6 abstained</text>
+<text x="613.00" y="279.00" fill="#172e35" font-size="18" font-weight="700" text-anchor="start">0 / 90</text>
+<line x1="32.00" y1="324.00" x2="768.00" y2="324.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="32.00" y="355.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">TitaNet, single mix</text>
+<text x="240.00" y="349.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">0 / 23</text>
+<rect x="240.00" y="357.00" width="0.00" height="10.00" fill="#00685f"/>
+<rect x="240.00" y="357.00" width="146.00" height="10.00" fill="url(#hatch)"/>
+<text x="240.00" y="386.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">23 abstained</text>
+<text x="424.00" y="349.00" fill="#172e35" font-size="17" font-weight="700" text-anchor="start">0 / 21</text>
+<rect x="424.00" y="357.00" width="0.00" height="10.00" fill="#00685f"/>
+<rect x="424.00" y="357.00" width="146.00" height="10.00" fill="url(#hatch)"/>
+<text x="424.00" y="386.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">21 abstained</text>
+<text x="613.00" y="351.00" fill="#172e35" font-size="18" font-weight="700" text-anchor="start">0 / 0</text>
+<text x="613.00" y="375.00" fill="#465961" font-size="15" font-weight="400" text-anchor="start">No named turns</text>
+<text x="32.00" y="414.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">A suggestion held for review counts as an abstention.</text>
+</svg>

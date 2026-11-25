@@ -2,7 +2,7 @@
 
 The recorder uses native Windows controls and WASAPI. Recording does not start the transcription worker or load a speech model. Opening the guided workflow starts a separate process. Long-file conversion and the optional local diarizer can use FFmpeg. The worker can use ffprobe to verify timestamps.
 
-The speaker-enabled Windows ZIP is 2,035,192 bytes. It contains a 1,629,696-byte recorder, a 2,522,112-byte worker, and a 5,682-byte Python adapter, plus the guide and notices. Install the optional Python runtime and models separately. The previous speech-profile ZIP was 1,344,067 bytes and had the same recorder size.
+The measurements on this page come from builds tested before v2.0.0. The speaker-enabled prototype ZIP measured 2,035,192 bytes. It included a 1,629,696-byte recorder, a 2,522,112-byte worker, and a 5,682-byte adapter. The earlier speech-profile prototype ZIP measured 1,344,067 bytes and had the same recorder size. Install the optional Python runtime and models separately.
 
 ## Idle window
 
@@ -30,6 +30,8 @@ Local faster-whisper 1.2.1 used `base.en`, English, CPU int8, four threads, beam
 | Speech DTX, 32 kbps | 69,173 bytes | The short program reply changed completely. The microphone transcript matched. |
 | Regular, 24 kbps | 119,546 bytes | The program reply changed completely. One microphone word disappeared. |
 | Speech DTX, 24 kbps | 53,271 bytes | The program reply changed in part. The microphone transcript lost its closing phrase. |
+
+![Combined size in bytes for the two tracks. Regular Opus used 157,593 bytes at 32 kbps and 119,546 bytes at 24 kbps. Speech DTX used 69,173 bytes at 32 kbps and 53,271 bytes at 24 kbps.](images/benchmarks/opus-storage.svg)
 
 Regular 32 kbps had the closest overall match. The recorder uses it for new settings. Speech DTX at 24 kbps produced the smallest files.
 
@@ -62,6 +64,8 @@ The table compares two offline model configurations. Both used sherpa-onnx 2.0.3
 | WeSpeaker ResNet34-LM, 0.27 | Separate tracks | 7.26% | 92.73% | 0.00% |
 | WeSpeaker ResNet34-LM, 0.27 | Single mix | 23.60% | 81.82% | 67.05% |
 
+![Diarization error, isolated turn recall, and overlap error in percent for TitaNet and WeSpeaker. Both configurations had lower error and higher recall on separate tracks than on a single mix.](images/benchmarks/speaker-attribution.svg)
+
 Both configurations met the targets on separate tracks. Both missed them on the mix. Much of the overlap in the separate recordings crossed the microphone and program tracks. These results do not establish accuracy for multiple simultaneous voices on one Discord track.
 
 The TitaNet adapter processed the mixed set in 50.77 seconds and the separate tracks in 74.11 seconds. Peak sampled process-tree working sets were 253.5 MiB and 237.7 MiB, respectively. The adapter exits after use. Ordinary recording does not incur that memory cost.
@@ -78,6 +82,8 @@ The same 24-call corpus tested explicit introductions and corroborated exchanges
 | Local TitaNet, separate tracks | 15 / 23 | 15 / 21 | 0 / 90 |
 | Local TitaNet, single mix | 0 / 23 | 0 / 21 | 0 / 0 |
 
+![Counts of automatically named introductions and contextual names. Local TitaNet recognized 15 of 23 introductions and 15 of 21 contextual names on separate tracks. It displayed no names automatically on a single mix.](images/benchmarks/automatic-naming.svg)
+
 On the single mix, local acoustic results generated suggestions only. The zero count represents abstention. None of these runs automatically confirmed a cross-session identity. Naming rules were corrected against failed cases, so the final naming scores are regression results on fixed scripts.
 
 A further three-person dialogue exercised paraphrased responses and an introduction followed by another sentence. Provider-labeled turns supported two inferred names; removing approved context left one. Local mixed-audio results displayed suggestions and attributed six of twelve turns uniquely and correctly. This was a synthetic workflow check with supplied recognition text.
@@ -91,6 +97,8 @@ The previous worker read a 12 KiB saved-response fixture one byte at a time. Rea
 The packaged worker processed a two-hour synthetic 16 kHz source with a local mock endpoint. It sent nine uploads using a 25 MiB file limit and created one temporary WAV at a time. Peak working sets were 10.39 MiB for the worker and 23.71 MiB for FFmpeg. A completed repeat took 0.159 seconds and made zero uploads with FFmpeg unavailable. The mock measured batch processing overhead and excluded recognition time.
 
 ## Repeat the focused checks
+
+To check the charts against their public aggregate data, run `python docs/benchmarks/generate.py --check` from the repository root. The chart guide describes the data and regeneration command. [Chart data and generation](benchmarks/README.md)
 
 Run these commands from the repository's `rust` directory using the build prerequisites in the [build guide](../BUILD.md).
 

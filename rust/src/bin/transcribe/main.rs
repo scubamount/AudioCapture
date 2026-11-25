@@ -36,11 +36,16 @@ Options:
   --same-session       Treat selected sources as one recording timeline
   --allow-duplicate-sources  Include a combined track and its separate tracks
   --chunk-long         Convert oversized files to bounded WAV chunks using ffmpeg
+  --version            Show the installed worker version
   --help               Show this help
 ";
 
 fn main() {
     let mut args = std::env::args_os().skip(1).peekable();
+    if args.len() == 1 && args.peek().is_some_and(|arg| arg == "--version") {
+        println!("transcribe {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     let guided = args.next_if(|arg| arg == "--guided").is_some();
     let result = if guided {
         guided::run(args)

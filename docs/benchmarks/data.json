@@ -1,0 +1,133 @@
+{
+  "corpus": {
+    "audio_cases": 24,
+    "seconds": 602.29,
+    "voices": 3,
+    "distinct_script_sequences": 10,
+    "overlap_cases": 12
+  },
+  "source_hashes": {
+    "aggregate_validation_sha256": "127f4057de18e2867e05b8cdf65bc90a897380f88c9e625794a82d3398dd0317",
+    "corpus_sha256": "ac0a84bf01887c0a5df24c97c078592a7993f58c325b5ed227fd4f5ac9d7ce54",
+    "evaluated_worker_sha256": "3edee3555094c893f8a2816fb4f3ae320b26495cba0fcff6f5f063212ea0f383"
+  },
+  "goals_percent": {
+    "maximum_der": 20,
+    "minimum_isolated_recall": 90
+  },
+  "acoustic": [
+    {
+      "model": "TitaNet Small",
+      "threshold": 0.5,
+      "results": [
+        {
+          "layout": "Separate tracks",
+          "ref_ms": 404542,
+          "miss_ms": 0,
+          "false_ms": 11168,
+          "confusion_ms": 19811,
+          "isolated": 220,
+          "recovered": 202
+        },
+        {
+          "layout": "Single mix",
+          "ref_ms": 404542,
+          "miss_ms": 4657,
+          "false_ms": 26015,
+          "confusion_ms": 55816,
+          "isolated": 220,
+          "recovered": 174
+        }
+      ]
+    },
+    {
+      "model": "WeSpeaker ResNet34-LM",
+      "threshold": 0.27,
+      "results": [
+        {
+          "layout": "Separate tracks",
+          "ref_ms": 404542,
+          "miss_ms": 0,
+          "false_ms": 10938,
+          "confusion_ms": 18420,
+          "isolated": 220,
+          "recovered": 204
+        },
+        {
+          "layout": "Single mix",
+          "ref_ms": 404542,
+          "miss_ms": 4431,
+          "false_ms": 25683,
+          "confusion_ms": 65341,
+          "isolated": 220,
+          "recovered": 180
+        }
+      ]
+    }
+  ],
+  "naming": [
+    {
+      "evidence": "Reference labels",
+      "introductions": {
+        "eligible": 23,
+        "correct": 22,
+        "abstained": 1
+      },
+      "contextual": {
+        "eligible": 21,
+        "correct": 21,
+        "abstained": 0
+      },
+      "incorrect_named_timed_utterances": 0,
+      "named_timed_utterances": 130
+    },
+    {
+      "evidence": "TitaNet, separate tracks",
+      "introductions": {
+        "eligible": 23,
+        "correct": 15,
+        "abstained": 8
+      },
+      "contextual": {
+        "eligible": 21,
+        "correct": 15,
+        "abstained": 6
+      },
+      "incorrect_named_timed_utterances": 0,
+      "named_timed_utterances": 90
+    },
+    {
+      "evidence": "TitaNet, single mix",
+      "introductions": {
+        "eligible": 23,
+        "correct": 0,
+        "abstained": 23
+      },
+      "contextual": {
+        "eligible": 21,
+        "correct": 0,
+        "abstained": 21
+      },
+      "incorrect_named_timed_utterances": 0,
+      "named_timed_utterances": 0
+    }
+  ],
+  "storage": {
+    "tracks": 2,
+    "seconds_per_track": 29.088,
+    "samples_per_track": 1396203,
+    "target_sample_rate_hz": 48000,
+    "pairs": [
+      {
+        "kbps": 32,
+        "regular_bytes": 157593,
+        "speech_dtx_bytes": 69173
+      },
+      {
+        "kbps": 24,
+        "regular_bytes": 119546,
+        "speech_dtx_bytes": 53271
+      }
+    ]
+  }
+}

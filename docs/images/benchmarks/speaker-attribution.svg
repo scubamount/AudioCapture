@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="558" viewBox="0 0 800 558" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Speaker attribution by source layout</title>
+<desc id="desc">Diarization error and isolated-turn recall for each model and source layout. TitaNet Small, Separate tracks: 7.66% error, 91.82% recall. TitaNet Small, Single mix: 21.38% error, 79.09% recall. WeSpeaker ResNet34-LM, Separate tracks: 7.26% error, 92.73% recall. WeSpeaker ResNet34-LM, Single mix: 23.60% error, 81.82% recall.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="558.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Speaker attribution by source layout</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">24 synthetic calls  ·  3 voices  ·  602.29 seconds of audio</text>
+<circle cx="40.00" cy="113.00" r="6" fill="#00685f"/>
+<text x="55.00" y="119.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Separate tracks</text>
+<path d="M230.00 105.00l8 8 -8 8 -8 -8z" fill="#754382"/>
+<text x="245.00" y="119.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Single mix</text>
+<line x1="385.00" y1="113.00" x2="416.00" y2="113.00" stroke="#172e35" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="425.00" y="119.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Acceptance threshold</text>
+<text x="32.00" y="160.00" fill="#172e35" font-size="21" font-weight="700" text-anchor="start">Diarization error</text>
+<text x="754.00" y="160.00" fill="#465961" font-size="16" font-weight="400" text-anchor="end">Goal ≤ 20%   ·   lower is better</text>
+<rect x="246.00" y="200.00" width="338.67" height="111.00" fill="#e2eeea"/>
+<line x1="246.00" y1="200.00" x2="246.00" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="246.00" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0%</text>
+<line x1="330.67" y1="200.00" x2="330.67" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="330.67" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">5%</text>
+<line x1="415.33" y1="200.00" x2="415.33" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="415.33" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">10%</text>
+<line x1="500.00" y1="200.00" x2="500.00" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="500.00" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">15%</text>
+<line x1="584.67" y1="200.00" x2="584.67" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="584.67" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">20%</text>
+<line x1="669.33" y1="200.00" x2="669.33" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="669.33" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">25%</text>
+<line x1="754.00" y1="200.00" x2="754.00" y2="311.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="754.00" y="191.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">30%</text>
+<line x1="584.67" y1="200.00" x2="584.67" y2="311.00" stroke="#172e35" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="32.00" y="233.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">TitaNet Small</text>
+<text x="32.00" y="253.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">Clustering threshold 0.50</text>
+<line x1="375.67" y1="236.00" x2="608.02" y2="236.00" stroke="#465961" stroke-width="2"/>
+<circle cx="375.67" cy="236.00" r="6" fill="#00685f"/>
+<text x="375.67" y="224.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">7.66%</text>
+<path d="M608.02 228.00l8 8 -8 8 -8 -8z" fill="#754382"/>
+<text x="620.67" y="224.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">21.38%</text>
+<text x="32.00" y="288.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">WeSpeaker ResNet34-LM</text>
+<text x="32.00" y="308.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">Clustering threshold 0.27</text>
+<line x1="368.89" y1="291.00" x2="645.56" y2="291.00" stroke="#465961" stroke-width="2"/>
+<circle cx="368.89" cy="291.00" r="6" fill="#00685f"/>
+<text x="368.89" y="279.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">7.26%</text>
+<path d="M645.56 283.00l8 8 -8 8 -8 -8z" fill="#754382"/>
+<text x="645.56" y="279.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">23.60%</text>
+<text x="32.00" y="353.00" fill="#172e35" font-size="21" font-weight="700" text-anchor="start">Isolated-turn recall</text>
+<text x="754.00" y="353.00" fill="#465961" font-size="16" font-weight="400" text-anchor="end">Goal ≥ 90%   ·   higher is better</text>
+<rect x="584.67" y="393.00" width="169.33" height="111.00" fill="#e2eeea"/>
+<line x1="246.00" y1="393.00" x2="246.00" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="246.00" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">70%</text>
+<line x1="330.67" y1="393.00" x2="330.67" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="330.67" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">75%</text>
+<line x1="415.33" y1="393.00" x2="415.33" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="415.33" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80%</text>
+<line x1="500.00" y1="393.00" x2="500.00" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="500.00" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">85%</text>
+<line x1="584.67" y1="393.00" x2="584.67" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="584.67" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">90%</text>
+<line x1="669.33" y1="393.00" x2="669.33" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="669.33" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">95%</text>
+<line x1="754.00" y1="393.00" x2="754.00" y2="504.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="754.00" y="384.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">100%</text>
+<line x1="584.67" y1="393.00" x2="584.67" y2="504.00" stroke="#172e35" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="32.00" y="426.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">TitaNet Small</text>
+<text x="32.00" y="446.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">Clustering threshold 0.50</text>
+<line x1="399.94" y1="429.00" x2="615.45" y2="429.00" stroke="#465961" stroke-width="2"/>
+<circle cx="615.45" cy="429.00" r="6" fill="#00685f"/>
+<text x="620.67" y="417.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">91.82%</text>
+<path d="M399.94 421.00l8 8 -8 8 -8 -8z" fill="#754382"/>
+<text x="399.94" y="417.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">79.09%</text>
+<text x="32.00" y="481.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">WeSpeaker ResNet34-LM</text>
+<text x="32.00" y="501.00" fill="#465961" font-size="14" font-weight="400" text-anchor="start">Clustering threshold 0.27</text>
+<line x1="446.12" y1="484.00" x2="630.85" y2="484.00" stroke="#465961" stroke-width="2"/>
+<circle cx="630.85" cy="484.00" r="6" fill="#00685f"/>
+<text x="630.85" y="472.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">92.73%</text>
+<path d="M446.12 476.00l8 8 -8 8 -8 -8z" fill="#754382"/>
+<text x="446.12" y="472.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="middle">81.82%</text>
+<text x="32.00" y="539.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Separate tracks contain two program voices and one microphone voice.</text>
+</svg>

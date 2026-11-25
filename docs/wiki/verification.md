@@ -35,7 +35,11 @@ Use a physical microphone for microphone acceptance. Exercise the extracted pack
 
 ## Package and evidence
 
-The [Windows workflow](../../.github/workflows/rust.yml) shows the hosted check selection and artifact configuration. The [packager](../../rust/tools/package.py) builds both executables from locked offline dependencies. It checks for source changes during the build and writes the guide and dependency notices into the ZIP. See the [build guide](../../BUILD.md) for exact package commands.
+The packager builds both executables from locked offline dependencies. It checks for source changes during the build and writes the guide and dependency notices into the ZIP. [Packager](../../rust/tools/package.py) · [Build guide](../../BUILD.md)
+
+CI checks the extracted worker's help and version. A synthetic two-track check covers confirmation, cancellation, attribution, review, and memory export and replay. It supplies generated audio and plain transcript text. It checks that the worker leaves speakers unidentified. It requires no capture device, recognizer, or speaker model. [Windows workflow](../../.github/workflows/rust.yml) · [Package smoke check](../../rust/tools/check_release.py)
+
+To repeat the worker check, run `python rust/tools/check_release.py <path-to-extracted-transcribe.exe>` from the repository root. Check the published ZIP against `SHA256SUMS.txt` from the same release. [Download verification](../../README.md#download-for-windows-11-x64)
 
 Loopback mocks measure request and batch behavior. They exclude recognition time and quality. The [reliability notes](../../openspec/changes/improve-recorder-reliability-and-efficiency/tasks.md) record synthetic interruption results and open hardware checks. The [transcription spike notes](../../openspec/changes/spike-on-demand-transcription/tasks.md) list remaining provider and recognition checks.
 

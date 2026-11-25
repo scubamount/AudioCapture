@@ -1,77 +1,26 @@
-name: Build and Release Latest
+name: Legacy C++ build
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-release:
+  windows:
     runs-on: windows-2022
-
+    timeout-minutes: 45
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0  # Fetch all history for release notes
-
-      - name: Install vcpkg dependencies
-        shell: pwsh
-        run: |
-          cd C:\vcpkg
-          .\vcpkg install opus:x64-windows-static-mt libflac:x64-windows-static-mt libogg:x64-windows-static-mt nlohmann-json:x64-windows-static-mt --overlay-triplets=${{ github.workspace }}\triplets
-
-      - name: Build with build.bat
+          persist-credentials: false
+      - name: Build and stage the original recorder
         shell: cmd
         run: |
-          echo | build.bat
-        env:
-          VCPKG_ROOT: C:\vcpkg
-          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
-
-      - name: Package release
-        shell: pwsh
-        run: |
-          $zipName = "AudioCapture-latest-windows-x64.zip"
-          Compress-Archive -Path "package/*" -DestinationPath $zipName
-
-      - name: Delete existing latest release and tag
-        shell: pwsh
-        run: |
-          # Try to delete the existing release - ignore error if it doesn't exist
-          gh release delete latest --yes --cleanup-tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "No existing 'latest' release found (this is OK)"
-            exit 0
-          }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          set "VCPKG_ROOT=%VCPKG_INSTALLATION_ROOT%"
+          call build-ci.bat
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          tag_name: latest
-          name: Latest Build
-          body: |
-            ## Latest Automatic Build
-
-            This is an automatically generated release from the latest commit on the master branch.
-
-            **Commit**: ${{ github.sha }}
-            **Build Date**: ${{ github.event.head_commit.timestamp }}
-
-            ### Recent Changes
-            ${{ github.event.head_commit.message }}
-
-            ---
-
-            For versioned releases, see the [Releases page](https://github.com/${{ github.repository }}/releases).
-          files: AudioCapture-latest-windows-x64.zip
-          draft: false
-          prerelease: true
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: AudioCapture-Legacy-Windows-x64-${{ github.run_attempt }}
+          path: package/
+          if-no-files-found: error

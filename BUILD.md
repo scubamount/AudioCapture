@@ -28,6 +28,12 @@ The packager builds both release executables with `--offline --locked`. It inclu
 
 The speaker bridge uses a separate Python environment, FFmpeg, and model files. Install them only when you want to run local diarization. [Speaker workflow](docs/speaker-workflow.md#optional-local-adapter)
 
+## GitHub builds and releases
+
+The Windows job checks formatting, charts, package assembly, and the Rust test suite. It builds the ZIP, checks the extracted worker, and uploads the ZIP with `SHA256SUMS.txt`. [Windows Rust build workflow](.github/workflows/rust.yml)
+
+To start a release, push a new tag that matches the Cargo version, such as `v2.0.0`. Before publication, CI verifies the ZIP checksum and confirms that the tag still points to the tested commit. GitHub Releases lists stable packages and checksums. [Releases](https://github.com/scubamount/AudioCapture/releases)
+
 ## Verify
 
 Run the checks from `rust`.
@@ -47,4 +53,6 @@ cargo test --release --locked --test recording selected_process_stays_isolated_a
 
 ## Original C++ build
 
-See the [C++ build guide](docs/legacy/BUILD.md) for the CMake and vcpkg build at the repository root.
+Build the original recorder from the repository root with CMake and vcpkg. [C++ build guide](docs/legacy/BUILD.md)
+
+To build it on GitHub, run **Legacy C++ build** from the Actions tab. The workflow stages the executable and guide as an Actions artifact. [Legacy workflow](.github/workflows/ci.yml)

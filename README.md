@@ -4,13 +4,25 @@
 
 Record selected Windows applications, system audio, and one microphone on Windows 11 x64. The Rust recorder uses native Windows controls and WASAPI. Save a mix, separate tracks, or both in WAV, MP3, Opus, or FLAC.
 
-## Get the Rust build
+## Download for Windows 11 x64
 
-Build the portable ZIP from source. [Build guide](BUILD.md)
+**[Download the latest stable ZIP](https://github.com/scubamount/AudioCapture/releases/latest/download/AudioCapture-Rust-Windows-x64.zip)** · [Latest release and checksum](https://github.com/scubamount/AudioCapture/releases/latest) · [v2.0.0 release](https://github.com/scubamount/AudioCapture/releases/tag/v2.0.0)
 
-If a successful **Windows Rust build** run is available, sign in to GitHub. Open its run page. Download **AudioCapture-Rust-Windows-x64** under **Artifacts**. Extract the download to get the portable ZIP. [GitHub Actions](https://github.com/scubamount/AudioCapture/actions)
+Version 2.0.0 is the first versioned stable release of the Rust recorder in this fork.
+
+To verify the download before extraction, save `SHA256SUMS.txt` from the same release as the ZIP. Run these commands in PowerShell from the download folder.
+
+```powershell
+$zip = 'AudioCapture-Rust-Windows-x64.zip'
+$expected = ((Get-Content -LiteralPath .\SHA256SUMS.txt -TotalCount 1) -split '\s+', 2)[0]
+$actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'ZIP checksum mismatch.' }
+'ZIP checksum matches.'
+```
 
 Extract `AudioCapture-Rust-Windows-x64.zip`. Run `audio-capture.exe` from the extracted folder. The ZIP includes `transcribe.exe`, the operator guide as `README.md`, and dependency notices.
+
+You can also make the portable ZIP from source. [Build guide](BUILD.md)
 
 ## Record and transcribe
 
@@ -26,6 +38,12 @@ Extract `AudioCapture-Rust-Windows-x64.zip`. Run `audio-capture.exe` from the ex
 Select **Transcribe files…** to choose completed recordings. This opens the separate `transcribe.exe` console. It sends audio to your chosen endpoint after you confirm the job. You can also run the worker directly.
 
 Use the worker's speaker commands to separate voices, review inferred names, and export complete transcripts for agent memory. The recorder loads no speaker model. Install the optional local adapter to run diarization on your computer. [Speaker workflow](docs/speaker-workflow.md)
+
+## Recording size
+
+In one two-track speech sample, regular 32 kbps mono Opus had the closest recognition match to the original files. Speech DTX at 24 kbps produced the smallest files. [Test method and results](docs/performance.md#size-and-speech-recognition)
+
+![Combined size of two speech tracks for four mono Opus profiles. Regular 32 kbps used 157,593 bytes. Speech DTX at 24 kbps used 53,271 bytes.](docs/images/benchmarks/opus-storage.svg)
 
 ## Documentation
 
