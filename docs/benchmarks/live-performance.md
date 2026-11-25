@@ -2,6 +2,27 @@
 
 The reference PC runs Windows 11 Pro build 26200 on a Ryzen 7 7800X3D with 32 GiB of RAM. It uses the Windows Balanced power plan. The operating system and test data use a Samsung 970 EVO 500 GB NVMe drive. Both builds use rustc 1.99.0, the x64 MSVC target and the static CRT.
 
+## Ten-minute Windows release check
+
+The 2.1.0 promotion check used the published Windows v2.1.0-dev.3 ZIP. The recorder and worker ran in separate processes with independent inputs. Both used the same runtime code as 2.1.0.
+
+| Process | Private memory, minute 2 | Private memory, minute 10 | Change | Frame result |
+| --- | ---: | ---: | ---: | --- |
+| Recorder | 5.95 MiB | 5.83 MiB | −0.12 MiB | 28,849,038 frames in the finalized silent Opus stream |
+| Transcription worker | 3.55 MiB | 3.89 MiB | +0.34 MiB | All 57,600,000 input frames accounted for, with zero gaps or duplicate chunks |
+
+Memory values are medians of one-second samples from 60–120 and 540–600 seconds, excluding each upper bound. The ten-minute promotion limit was 8 MiB of private memory growth per process.
+
+![Private memory and working set during both ten-minute tests](../images/benchmarks/endurance-2.1.0.png)
+
+The recorder captured only a test process that produced no sound. It saved 601.02 seconds at 48 kHz in mono. All 604 Ogg pages passed checksum and continuity checks. During recording, the source diagnostics reported zero drops or gaps. No physical microphone or rendered input packets were tested.
+
+The test harness also waited for a timeline file that this recording-only mode does not write. The final Opus file decoded to exactly 28,849,038 silent samples. Final GUI shutdown status was not checked.
+
+The worker received two paced 48 kHz sources through its normal input pipe. A local mock recognition service returned 300 results. Each result appeared once in the final transcript.
+
+The release decision used these ten-minute checks and Windows CI. The two-hour endurance target remains open. [Memory samples](endurance-2.1.0.csv) · [Prerelease tested](https://github.com/scubamount/AudioCapture/releases/tag/v2.1.0-dev.3)
+
 ## Reproduce the recording comparison
 
 Build the same `live_perf_capture` example against the v2.0.0 tag and the implementation under test. Copy the example into the baseline's `rust/examples` directory before building. Build the two revisions in different directories. Save each resulting executable under a separate name.

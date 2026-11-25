@@ -6,9 +6,9 @@ Record selected Windows applications, system audio, and one microphone on Window
 
 ## Download for Windows 11 x64
 
-**[Download the latest stable ZIP](https://github.com/scubamount/AudioCapture/releases/latest/download/AudioCapture-Rust-Windows-x64.zip)** · [Latest release and checksum](https://github.com/scubamount/AudioCapture/releases/latest) · [v2.0.0 release](https://github.com/scubamount/AudioCapture/releases/tag/v2.0.0)
+**[Download the latest stable ZIP](https://github.com/scubamount/AudioCapture/releases/latest/download/AudioCapture-Rust-Windows-x64.zip)** · [Latest release and checksum](https://github.com/scubamount/AudioCapture/releases/latest)
 
-For independent recording, live transcription, and shared batch settings, use the [v2.1.0-dev.3 Windows prerelease](https://github.com/scubamount/AudioCapture/releases/tag/v2.1.0-dev.3). Its ZIP includes `config/transcription.example.json`. The workflow below describes this prerelease. For version 2.0.0, see the [stable operator guide](https://github.com/scubamount/AudioCapture/blob/v2.0.0/rust/README.md).
+Version 2.1.0 adds independent recording, live transcription, and shared batch settings. Its ZIP includes `config/transcription.example.json`. [Version 2.1.0 release notes](https://github.com/scubamount/AudioCapture/releases/tag/v2.1.0)
 
 To verify the download before extraction, save `SHA256SUMS.txt` from the same release as the ZIP. Run these commands in PowerShell from the download folder.
 
