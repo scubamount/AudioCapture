@@ -1,14 +1,24 @@
-# Audio Capture for Windows
+# Audio Capture 2.2.0 for Windows
 
-Use Audio Capture on Windows 11 x64 to record program audio, system audio, and one microphone. Start recording, live transcription, or both. You can also transcribe completed files in a batch.
+Record selected program audio, system audio, and one microphone on Windows 11 x64. Transcribe finished English MP4s offline or use a compatible endpoint for live audio and other completed files.
+
+| Task | Guide |
+| --- | --- |
+| Record only | [Record a Discord conversation](#record-a-discord-conversation) · [Choose a recording profile](#choose-a-recording-profile) |
+| Turn one MP4 into timed text offline | [Transcribe an MP4 offline](#transcribe-an-mp4-offline) |
+| Submit an offline MP4 from an agent | [Control a local MP4 job](#control-a-local-mp4-job) |
+| Use a configured service | [Transcribe during a call](#transcribe-during-a-call) · [Use an endpoint for completed files](#use-an-endpoint-for-completed-files) |
+| Attribute speakers and export approved text | [Review speakers and export memory](#review-speakers-and-export-memory) |
 
 ## Open the portable package
 
-1. Extract the ZIP to a folder you can write to.
-2. Keep `audio-capture.exe` and `transcribe.exe` in the same folder.
-3. Run `audio-capture.exe`.
+1. Download the app ZIP from [Audio Capture 2.2.0](https://github.com/scubamount/AudioCapture/releases/tag/v2.2.0).
+2. Compare its SHA-256 against the row for the app ZIP in `SHA256SUMS.txt`.
+3. Extract the ZIP to a folder you can write to.
+4. Keep `audio-capture.exe` and `transcribe.exe` in the same folder.
+5. Run `audio-capture.exe`.
 
-The ZIP includes this guide, `config/transcription.example.json`, and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for MP3 encoding. FFmpeg and ffprobe are optional tools for transcription.
+The ZIP includes this guide, `config/transcription.example.json`, and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for recording and video import. [Recorder overview](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/recorder-overview.png)
 
 ## Record a Discord conversation
 
@@ -49,6 +59,8 @@ Open **Manage recent** and select **Auto-select recent** if you usually capture 
 
 ## Choose a recording profile
 
+Open **Recording settings** to select a preset or adjust its format, channels, bitrate, and sample rate. Available controls depend on the selected format. [Recording settings screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/recording-profiles.png)
+
 On first launch without saved or imported settings, Audio Capture starts with **Speech (Opus 32 kbps mono)**. It restores saved settings from `%LOCALAPPDATA%\AudioCaptureRust` when available. It can also read supported preferences and named presets from the original C++ recorder.
 
 **Recording profile** sets the format, channels, and bitrate or sample rate for that format. Change the format controls directly to use other settings. The selector shows **Custom** when your encoding settings match none of the six profiles.
@@ -67,6 +79,8 @@ Leave **Skip silence** clear to retain quiet intervals on the saved timeline. DT
 For other WAV settings, choose 44100 Hz or 48000 Hz. **Auto** uses 48000 Hz. FLAC compresses PCM without loss. MP3 can add encoder delay and padding.
 
 ## Transcribe during a call
+
+Live transcription uses a compatible endpoint. Recording and live text have separate start and stop controls. [Live workflow and screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/live-transcription.md)
 
 1. Select the program and microphone for the transcript.
 2. Choose your recording **Output folder** if you also want to save audio.
@@ -128,19 +142,109 @@ Recovery publishes available committed words and reports missing coverage. To re
 
 ## Transcribe completed files
 
-**Transcribe files…** uses the endpoint, model, API key variable, output folder, and timestamp setting shown in **Transcription settings**. You can load a config or enter the settings once. The service must accept multipart requests at `<base-url>/audio/transcriptions`.
+### Transcribe an MP4 offline
 
-1. Select **Transcribe files…**.
-2. Select the saved audio files.
-3. If you have no transcription config, enter the service settings when prompted.
+Each local job transcribes the first embedded audio track of one completed MP4. Windows Media Foundation decodes audio. Candle runs Whisper `base.en` on the CPU. Install the English model once. The worker verifies the pack before inference.
+
+1. Download and extract the [Whisper base.en model ZIP](https://github.com/scubamount/AudioCapture/releases/download/v2.2.0/AudioCapture-Whisper-base.en-model.zip).
+2. Open **Transcribe files…** in the recorder.
+3. Set **Model pack folder** to the folder containing `config.json`, `tokenizer.json`, and `model.safetensors`.
+4. Select **Import base.en pack**.
+5. Choose your **MP4 file**.
+6. Choose an output folder under **Save transcripts in**.
+7. Select **Preview local job**.
+8. Check the source, model, and destination.
+9. Select **Start local transcript**.
+10. Read the segments under **Timed transcript** when the job finishes.
+
+Use **Cancel job** to stop at a processing checkpoint. Use **Current job** to return to the job panel. The output folder contains one job directory with `transcript.txt` and `transcript.json`. [Model setup](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/local-mp4.png) · [Timed review](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/local-mp4-review.png)
+
+Audio stays on this computer. The worker decodes 16 kHz mono audio in windows of up to 30 seconds. It carries unfinished audio into the next window when Whisper supplies a suitable segment boundary. Segment times start at the first decoded sample. A delayed audio track can have a different clock in a video player.
+
+The English model pack is a separate download. Verify the ZIP against its named row in the release checksum file. An existing `base.en` endpoint profile uses its configured service. [Compatible model revision](https://huggingface.co/openai/whisper-base.en/tree/911407f4214e0e1d82085af863093ec0b66f9cd6)
+
+### Control a local MP4 job
+
+Import the model from the recorder first. Create a grant for each agent from a trusted operator session. Give the grant access only to the input and output locations the agent needs. This example uses an existing file and output directory.
+
+```json
+{
+  "input_roots": ["C:\\Media\\Meeting.mp4"],
+  "output_roots": ["C:\\Transcripts"],
+  "operations": ["batch.transcribe", "batch.status", "transcript.fetch"],
+  "profiles": ["local-whisper"],
+  "allow_headless_approval": true
+}
+```
+
+Save the policy as `agent-policy.json`. Use the actual spelling of the selected paths. Run the commands in PowerShell 7 from the extracted app folder. Provision the grant in an operator shell without an existing `AUDIO_CAPTURE_GRANT_REF`.
+
+```powershell
+$grant = .\transcribe.exe control grants provision --json --policy .\agent-policy.json | ConvertFrom-Json
+if (!$grant.ok) { throw $grant.error.message }
+$env:AUDIO_CAPTURE_GRANT_REF = $grant.grant_ref
+$request = @{
+    schema_version = 1
+    operation = 'transcribe'
+    files = @('C:\Media\Meeting.mp4')
+    profile_id = 'local-whisper'
+    output_dir = 'C:\Transcripts'
+}
+$plan = $request | ConvertTo-Json -Compress | .\transcribe.exe control batch preview --json --input - | ConvertFrom-Json
+if (!$plan.ok) { throw $plan.error.message }
+$plan.scope
+```
+
+Review the scope. Run the next commands to approve and check the job. Reuse the same key when retrying a commit.
+
+```powershell
+$approval = @{schema_version=1; plan_id=$plan.plan_id; approved=$true; idempotency_key=[guid]::NewGuid().ToString()}
+$job = $approval | ConvertTo-Json -Compress | .\transcribe.exe control batch commit --json --input - | ConvertFrom-Json
+if (!$job.ok) { throw $job.error.message }
+$query = @{schema_version=1; batch_id=$job.batch_id} | ConvertTo-Json -Compress
+$query | .\transcribe.exe control batch status --json --input -
+```
+
+Run `transcript fetch` with the same query after completion to read results. To enable cancellation, include `batch.cancel` in the policy. Use `batch cancel` with the job ID.
+
+To revoke a grant, run `control grants revoke --json --grant GRANT` from the operator shell. Replace `GRANT` with the issued reference. Keep the reference private.
+
+Use `audio-capture.exe control` for a windowless CLI launch from another application. It accepts the same arguments as `transcribe.exe control`.
+
+For MCP clients, launch `audio-capture.exe mcp`. It passes redirected input and output to the worker. Supply your executable path and grant reference.
+
+```json
+{
+  "mcpServers": {
+    "audio-capture": {
+      "command": "C:\\Apps\\AudioCapture\\audio-capture.exe",
+      "args": ["mcp"],
+      "env": {"AUDIO_CAPTURE_GRANT_REF": "REPLACE_WITH_GRANT"}
+    }
+  }
+}
+```
+
+Use `tools/list` for available operations. Call `audio_capture_batch` with `action` set to `preview`, `commit`, or `status`. Use `audio_capture_transcript` with `action` set to `fetch` to read timed text.
+
+### Use an endpoint for completed files
+
+The endpoint workflow uses the endpoint, model, API key variable, output folder, and timestamp setting shown in **Transcription settings**. You can load a config or enter the settings once. The service must accept multipart requests at `<base-url>/audio/transcriptions`.
+
+1. Open **Transcribe files…** and select **Use an endpoint…**.
+2. Select the saved audio or video files.
+3. If the panel asks for the service URL, enter it in **Endpoint reply**.
 4. Choose a shared timeline for synchronized tracks from the same recording.
-5. Choose whether to split oversized files and create a local HTML review.
+5. Choose from the available options for oversized audio files and local HTML review.
 6. Check the listed inputs, endpoint, model, and output folder.
-7. Type `y` at the final send prompt to proceed. Press Enter to cancel.
+7. Enter `y` in **Endpoint reply** at the final send prompt.
+8. Select **Send reply**.
 
-You can select completed files during recording or live transcription. Audio stays local until you confirm. The worker reports each result. Live work takes priority when it shares the endpoint with a batch. A loopback URL uses a service running on your computer.
+Answer each question with **Send reply**. Use **Close session** to close the endpoint panel. The worker reports each result. Live work takes priority when it shares the endpoint with a batch. A loopback URL uses a service running on your computer.
 
-The picker can open a finalized recording timeline file such as `Recording-<id>.timeline.jsonl`. Review its available audio outputs in the console. Choose the separate tracks or the mix to avoid duplicate speech.
+To reuse your settings, open **Transcription settings** and select **Load config…** before opening a new batch. For automatic loading, place your active `transcription.json` beside the executables. The example in `config/` is a template.
+
+The endpoint picker can open a finalized recording timeline file such as `Recording-<id>.timeline.jsonl`. Choose the separate tracks or the mix to avoid duplicate speech.
 
 You can also start the guided console from PowerShell. It reads `transcription.json` beside `transcribe.exe`. An empty output folder in this standalone mode uses `transcripts` beside the first input.
 
@@ -148,7 +252,7 @@ You can also start the guided console from PowerShell. It reads `transcription.j
 .\transcribe.exe --guided -- '.\Discord.opus' '.\Microphone.opus'
 ```
 
-Select **Batch queue…** to open the queue console. These PowerShell commands also work. Use the ID from the list.
+Select **Endpoint queue…** to manage these batches. These PowerShell commands also work. Use the ID from the list.
 
 ```powershell
 .\transcribe.exe batch-queue list
@@ -160,6 +264,23 @@ Select **Batch queue…** to open the queue console. These PowerShell commands a
 
 Resume returns eligible work to the queue. An unknown result might have completed at the endpoint. Check the service before you run `batch-queue resume ID --retry-unknown`.
 
+### Transcribe a video
+
+For local recognition, follow [Transcribe an MP4 offline](#transcribe-an-mp4-offline). For an endpoint, use the endpoint file picker. You can include audio files in the same endpoint batch.
+
+You can also use the guided command with your saved transcription settings.
+
+```powershell
+.\transcribe.exe --guided -- '.\meeting.mp4'
+```
+
+The worker extracts the first embedded audio track locally. It sends only 16 kHz mono WAV audio to your endpoint. A long track is split automatically at the upload limit. The original video stays on disk.
+
+The picker accepts MP4, M4V, MOV, MKV, WebM, MPEG, MPG, AVI, and WMV. Decoding depends on the codecs installed in Windows. A video with no readable audio produces a file error. Import uses Windows Media Foundation and needs no FFmpeg installation.
+
+Transcript timestamps start at the first decoded audio sample. For edited videos or delayed audio tracks, timestamps can differ from the video player's clock.
+HTML review plays the original file through your browser. Playback depends on its codec support and choice of audio track.
+
 ### Set a bearer token for the session
 
 If you need a token, open PowerShell in the extracted folder. Enter the token in the masked prompt. Start the recorder from that shell so its companion inherits the variable.
@@ -170,7 +291,7 @@ $env:TRANSCRIPTION_API_KEY = [Net.NetworkCredential]::new('', $secret).Password
 .\audio-capture.exe
 ```
 
-Enter `TRANSCRIPTION_API_KEY` in the live settings or at the console's environment variable prompt. Run scripted commands that name this variable from the same shell. The worker reads the token from the environment and sends it as a bearer credential.
+Enter `TRANSCRIPTION_API_KEY` in the live settings or when the endpoint workflow asks for a variable name. Run scripted commands that use this variable from the same shell. The worker reads its value from the environment.
 
 ## Script transcription in PowerShell
 
@@ -210,7 +331,7 @@ The service must accept the selected audio format. The worker accepts UTF-8 plai
 
 Use the service's actual upload limit. Guided mode uses the default 25 MiB limit. Set `--max-file-mib` in scripted mode when the service requires a different limit.
 
-Put `ffmpeg.exe` on PATH to split oversized files with the guided option or `--chunk-long`. The worker reads the original audio and sends one bounded 16 kHz mono WAV part at a time. It keeps part offsets on the source timeline. Ordinary uploads within the configured limit need no FFmpeg.
+For oversized audio files, put `ffmpeg.exe` on PATH and enable the guided split option or `--chunk-long`. Video imports use the native splitter automatically. The worker sends one bounded 16 kHz mono WAV part at a time.
 
 Put `ffprobe.exe` on PATH to validate full-file segment times for HTML review. The text remains available when the service returns no usable timing or ffprobe cannot check the duration. Restart Audio Capture after an environment change so the recorder and its companion see the updated PATH.
 
@@ -244,7 +365,7 @@ Repeat `--session` in the attribution command to process more sessions. Use `--j
 
 Diarization can use speaker data from a supported recognition result. For a result without speaker labels, an optional local adapter can identify speech intervals. The worker retains untimed text and leaves uncertain speaker assignments open for review.
 
-The portable ZIP contains `tools/diarize_local.py`. Install its selected Python runtime, models, and FFmpeg separately. Use an adapter only in a manifest you trust. See `docs/speaker-workflow.md` in the source repository for setup and JSON examples.
+The portable ZIP contains `tools/diarize_local.py`. Install its Python runtime, models, and FFmpeg separately. Use an adapter only in a manifest you trust. [Speaker setup and examples](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/speaker-workflow.md)
 
 Optional automatic naming uses English introductions and supported question-and-answer exchanges. Separate tracks or provider-labeled turns can support an inferred name. For a single mixed track grouped only by the local adapter, names stay as suggestions until you review the speaker assignments or confirm an identity.
 
@@ -264,7 +385,10 @@ Copy the batch manifest path from the export receipt. Run `.\transcribe.exe impo
 - **A source drops out.** Check the recorder status. Other healthy sources can continue. Opus writes an Ogg checkpoint about once per second, which can leave a playable prefix after an interruption.
 - **Live transcription is waiting.** A batch request may still own the available slot. Follow the status before relying on transcript coverage.
 - **The live transcript could not save.** Use the displayed partial text path or the recovery command. Select a folder you can write to.
-- **The companion console fails to start.** Check that `transcribe.exe` is beside the recorder.
+- **The transcription worker fails to start.** Check that `transcribe.exe` is beside the recorder.
+- **Local model import fails.** Select the extracted release model folder. Confirm that it has the three model files and that the ZIP checksum matches.
+- **The local video has no readable audio.** Check that the MP4 has a first audio track Windows can decode. Windows N editions can require the Media Feature Pack.
+- **The worker cannot connect (Windows error 12029).** Start your transcription service. Check its host and port. Check the base URL prefix in the batch preview before you send.
 - **The endpoint rejects the request.** Check the URL prefix, model name, token variable, media format, and upload limit. Use `--language` only with a code your service accepts.
 - **A timed segment is missing.** Check that the endpoint supports `verbose_json` with segments and that ffprobe is on PATH for full-file review.
 - **The review cannot play audio.** Check that the browser supports the format and the original audio remains at its recorded path.

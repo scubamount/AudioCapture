@@ -16,12 +16,13 @@ Run these PowerShell commands from the repository's `rust` directory on Windows 
 | WAV and other codecs | `cargo test --release --locked --lib encode::tests`, `cargo test --release --locked --lib opus_writer::tests` | [Resampling and rollover](../../rust/src/encode.rs), [Opus decoding and interruption](../../rust/src/opus_writer.rs) |
 | Profile behavior and setup compatibility | `cargo test --release --locked --lib prefs::tests` | [Profile matching, first run, and legacy imports](../../rust/src/prefs.rs) |
 | Recent program identity | `cargo test --release --locked --lib recent_programs::` | [Restart, ambiguity, invalidation, and persistence](../../rust/src/recent_programs.rs) |
-| Guided consent and job state | `cargo test --release --locked --bin transcribe guided::tests`, `cargo test --release --locked --bin transcribe jobs::tests` | [Prompt tests](../../rust/src/bin/transcribe/guided.rs), [cache and job tests](../../rust/src/bin/transcribe/jobs.rs) |
+| Offline MP4, pinned model, and agent control | `cargo test --release --locked --bin transcribe local_batch`, `cargo test --release --locked --bin transcribe model_pack`, `cargo test --release --locked --bin transcribe control::` | [Job service](../../rust/src/bin/transcribe/local_batch.rs), [pack checks](../../rust/src/bin/transcribe/model_pack.rs), [agents](../../rust/src/bin/transcribe/control.rs) |
+| Guided endpoint consent and job state | `cargo test --release --locked --bin transcribe guided::tests`, `cargo test --release --locked --bin transcribe jobs::tests` | [Prompt tests](../../rust/src/bin/transcribe/guided.rs), [cache and job tests](../../rust/src/bin/transcribe/jobs.rs) |
 | Live text and batch admission | `cargo test --release --locked --bin transcribe live::`, `cargo test --release --locked --bin transcribe batch_queue::` | [Live worker](../../rust/src/bin/transcribe/live.rs), [batch queue](../../rust/src/bin/transcribe/batch_queue.rs) |
 | HTTP and HTML review | `cargo test --release --locked --bin transcribe transport::tests`, `cargo test --release --locked --bin transcribe review::tests` | [Loopback mock tests](../../rust/src/bin/transcribe/transport.rs), [review rendering tests](../../rust/src/bin/transcribe/review.rs) |
 | Long-file conversion | `cargo test --release --locked --bin transcribe chunks::tests` | [Chunk offsets, cleanup, and FFmpeg](../../rust/src/bin/transcribe/chunks.rs) |
 | Speaker attribution and memory | `cargo test --release --locked --bin transcribe attribution::` | [Local worker](../../rust/src/bin/transcribe/attribution) |
-| Package assembly | `python -B -m unittest discover -s tools -p test_package.py` | [Package tests](../../rust/tools/test_package.py) |
+| App and model package assembly | `python -B -m unittest discover -s tools -p 'test_package*.py'` | [App package tests](../../rust/tools/test_package.py), [model package tests](../../rust/tools/test_package_model.py) |
 
 Put FFmpeg on `PATH` for the codec decode and chunk checks. The Opus chunk fixture needs FFmpeg with the `libopus` encoder. Some codec decode checks skip their external work without FFmpeg. [Codec checks](../../rust/src/encode.rs) · [Opus checks](../../rust/src/opus_writer.rs) · [Chunk checks](../../rust/src/bin/transcribe/chunks.rs)
 
@@ -57,13 +58,23 @@ Record the hardware, fixture identity, endpoint timing, and build for resource m
 
 ## Package and evidence
 
-The packager builds both executables from locked offline dependencies. It checks for source changes during the build and writes the guide and dependency notices into the ZIP. [Packager](../../rust/tools/package.py) · [Build guide](../../BUILD.md)
+The app packager builds both executables from locked offline dependencies. It checks for source changes during the build and includes the guide, example config, and dependency notices. The release workflow builds the optional pinned model ZIP separately. [App packager](../../rust/tools/package.py) · [Model packager](../../rust/tools/package_model.py) · [Build guide](../../BUILD.md)
 
-CI checks the extracted worker's help and version. A synthetic two-track check covers confirmation, cancellation, attribution, review, and memory export and replay. It supplies generated audio and plain transcript text. It checks that the worker leaves speakers unidentified. It requires no capture device, recognizer, or speaker model. [Windows workflow](../../.github/workflows/rust.yml) · [Package smoke check](../../rust/tools/check_release.py)
+CI checks the extracted worker's help, version, local CLI, and MCP discovery. A synthetic two-track test checks consent, cancellation, speaker review, and memory export and replay. It supplies generated audio and plain transcript text. It checks that the worker leaves speakers unidentified. [Windows workflow](../../.github/workflows/rust.yml) · [Package smoke check](../../rust/tools/check_release.py)
 
-To repeat the worker check, run `python rust/tools/check_release.py <path-to-extracted-transcribe.exe>` from the repository root. Check the published ZIP against `SHA256SUMS.txt` from the same release. [Download verification](../../README.md#download-for-windows-11-x64)
+To repeat the worker check, run `python -B rust/tools/check_release.py <path-to-extracted-transcribe.exe>` from the repository root. Compare downloads with the named rows in `SHA256SUMS.txt` from the same release. [Download verification](../../README.md#download-for-windows-11-x64)
 
 Loopback mocks measure request and batch behavior. They exclude recognition time and quality. The [reliability notes](../../openspec/changes/improve-recorder-reliability-and-efficiency/tasks.md) record synthetic interruption results and open hardware checks. The [transcription spike notes](../../openspec/changes/spike-on-demand-transcription/tasks.md) list remaining provider and recognition checks.
+
+## Check offline MP4 on Windows
+
+Extract the app ZIP and the verified English pack into separate folders. Use a local English MP4 that you can inspect. Run from `rust`.
+
+```powershell
+python -B tools/test_local_mp4.py C:\Test\App\audio-capture.exe C:\Test\clip.mp4 C:\Test\Model --output "$env:TEMP\audio-capture-mp4-check"
+```
+
+The harness exercises the UI, CLI, and MCP with an inactive desktop and no playback. It compares output bytes, segment timing, and the source hash. Keep the report and transcripts outside the repository. [Offline harness](../../rust/tools/test_local_mp4.py) · [Measured sample](../performance.md#offline-mp4-transcription)
 
 ## Check the speaker workflow
 

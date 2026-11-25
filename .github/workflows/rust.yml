@@ -53,7 +53,7 @@ jobs:
         working-directory: .
         run: python -B docs/benchmarks/generate.py --check
       - name: Test package assembly
-        run: python -B -m unittest discover -s tools -p test_package.py
+        run: python -B -m unittest discover -s tools -p 'test_package*.py'
       - name: Prepare Windows Media Foundation for MP3 tests
         shell: powershell
         run: |
@@ -98,9 +98,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B tools/test_live_worker.py "$worker"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/test_video_transcription.py "$worker"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $digest = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$($zip.DirectoryName)/SHA256SUMS.txt", "$digest  $($zip.Name)`n")
-      - name: Upload the verified ZIP and checksum
+      - name: Build and verify the optional model pack for release tags
+        if: github.event_name == 'push' && github.ref_type == 'tag' && github.event.created
+        run: |
+          $model = Join-Path $env:RUNNER_TEMP 'dist/AudioCapture-Whisper-base.en-model.zip'
+          python -B tools/package_model.py --download --output $model
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::AppendAllText("$env:RUNNER_TEMP/dist/SHA256SUMS.txt", "$hash  AudioCapture-Whisper-base.en-model.zip`n")
+      - name: Upload verified packages and checksums
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -137,12 +147,13 @@ jobs:
         run: |
           set -euo pipefail
           zip=AudioCapture-Rust-Windows-x64.zip
-          sha256sum "$zip" | cmp - SHA256SUMS.txt
+          model=AudioCapture-Whisper-base.en-model.zip
+          sha256sum "$zip" "$model" | cmp - SHA256SUMS.txt
           remote_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$GITHUB_REF_NAME" --jq .sha)
           [[ "$remote_commit" == "$TESTED_COMMIT" ]] || { echo 'The tag no longer points to the tested commit.' >&2; exit 1; }
           notes="../docs/releases/$GITHUB_REF_NAME.md"
           args=(--generate-notes)
           if [[ -f "$notes" ]]; then args=(--notes-file "$notes"); fi
           if [[ "${GITHUB_REF_NAME%%+*}" == *-* ]]; then args+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" "$zip" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" "$zip" "$model" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
             --verify-tag --title "Audio Capture $GITHUB_REF_NAME" "${args[@]}"

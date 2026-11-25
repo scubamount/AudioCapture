@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="358" viewBox="0 0 800 358" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Offline MP4 transcription time</title>
+<desc id="desc">One English MP4 supplied 348.648 seconds of decoded audio. Native UI completed in 118.83 seconds. Stdio MCP completed in 135.41 seconds. Headless CLI completed in 154.40 seconds. Each interface ran once under varying machine load.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="358.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Offline MP4 transcription time</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">One English MP4  ·  Whisper base.en on CPU  ·  One run per interface</text>
+<text x="186.00" y="121.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Elapsed time in seconds</text>
+<text x="186.00" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="186.00" y1="160.00" x2="186.00" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="266.57" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">60</text>
+<line x1="266.57" y1="160.00" x2="266.57" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="347.14" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">120</text>
+<line x1="347.14" y1="160.00" x2="347.14" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="427.71" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">180</text>
+<line x1="427.71" y1="160.00" x2="427.71" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="508.29" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">240</text>
+<line x1="508.29" y1="160.00" x2="508.29" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="588.86" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">300</text>
+<line x1="588.86" y1="160.00" x2="588.86" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="669.43" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">360</text>
+<line x1="669.43" y1="160.00" x2="669.43" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="750.00" y="150.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">420</text>
+<line x1="750.00" y1="160.00" x2="750.00" y2="299.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="32.00" y="188.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Native UI</text>
+<rect x="186.00" y="172.00" width="159.57" height="20.00" fill="#00685f"/>
+<text x="355.57" y="188.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">118.83 s</text>
+<text x="32.00" y="235.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Stdio MCP</text>
+<rect x="186.00" y="219.00" width="181.84" height="20.00" fill="#00685f"/>
+<text x="377.84" y="235.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">135.41 s</text>
+<text x="32.00" y="282.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Headless CLI</text>
+<rect x="186.00" y="266.00" width="207.34" height="20.00" fill="#00685f"/>
+<text x="403.34" y="282.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">154.40 s</text>
+<line x1="654.18" y1="160.00" x2="654.18" y2="299.00" stroke="#172e35" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="654.18" y="121.00" fill="#465961" font-size="16" font-weight="400" text-anchor="end">348.648 s decoded audio</text>
+<text x="32.00" y="332.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Machine load varied. All three runs produced identical text and timed JSON.</text>
+</svg>

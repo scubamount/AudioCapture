@@ -1,4 +1,18 @@
 {
+  "local_mp4": {
+    "audio_seconds": 348.648,
+    "model": "Whisper base.en",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "max_inference_threads": 4,
+    "words": 1094,
+    "timed_segments": 108,
+    "peak_process_commit_mib": [569.9, 570.6],
+    "runs": [
+      {"interface": "Native UI", "elapsed_seconds": 118.83},
+      {"interface": "Stdio MCP", "elapsed_seconds": 135.41},
+      {"interface": "Headless CLI", "elapsed_seconds": 154.40}
+    ]
+  },
   "corpus": {
     "audio_cases": 24,
     "seconds": 602.29,

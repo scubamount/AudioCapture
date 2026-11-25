@@ -2,6 +2,8 @@
 
 [Wiki home](README.md) · [Operator guide](../../rust/README.md) · [Focused checks](verification.md)
 
+![Audio Capture recording controls and source selection](../images/recorder-overview.png)
+
 ## Capture and routing
 
 | Stage | Code and behavior |
@@ -42,6 +44,8 @@ The session supports separate files, one mix, or both. [`Writer`](../../rust/src
 | FLAC | Lossless PCM compression at 48 kHz with a selectable compression level. [FLAC writer](../../rust/src/flac_writer.rs) |
 
 ## Recording profiles and saved setups
+
+![Recording profile menu in the Windows recorder](../images/recording-profiles.png)
 
 The **Recording profile** selector applies the format, channels, and that format's rate or bitrate. It retains settings for other codecs, selected sources, routes, gains, folder, file mode, and silence setting. Manual edits and setup loads refresh the match. **Custom** shows an encoding outside the built-in choices. [`ENCODING_PROFILES`](../../rust/src/prefs.rs) · [Profile selection](../../rust/src/native_controller.rs) · [Operator profile table](../../rust/README.md#choose-a-recording-profile)
 

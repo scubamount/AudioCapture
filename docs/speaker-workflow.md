@@ -1,12 +1,14 @@
 # Speaker attribution and memory export
 
-Use `transcribe.exe` after you finish recording and recognition. Speaker attribution identifies voices and links them to existing transcript text. The memory command writes a local export. Start each operation when you need it.
+Use `transcribe.exe` after recording and recognition. Speaker attribution links voice activity to existing transcript text. Review names and corrections before you export selected text as local JSONL.
+
+The speaker workflow uses its own CLI commands for session preparation, review, and export. The Whisper `base.en` pack supplies English text and segment timing in offline MP4 jobs. For speaker data, use a supported diarized response or install the optional speaker adapter. [Offline MP4 workflow](../rust/README.md#transcribe-an-mp4-offline)
 
 ## Prepare a session
 
 Place your audio and transcript files in a working folder. A transcript can be a UTF-8 text file, a supported recognizer response, or a completed worker job artifact. Use timed segments or words if you want to attach text to speakers.
 
-Run the preparation command from PowerShell. Choose the completed audio and its recognition output when prompted.
+Run the preparation command from PowerShell in the extracted app folder. Choose the completed audio and its recognition output when prompted.
 
 ```powershell
 .\transcribe.exe prepare-session --session .\session.json
@@ -16,7 +18,7 @@ Enter one audio path at a time. Enter a blank line to finish the list. You can a
 
 Use a shared clock for tracks from the same recording. Keep unrelated recordings separate. When a recording has a mix and all its separate tracks, prefer the separate tracks. Select one representation when using a mix or partial coverage, or when system and program captures overlap.
 
-The local pyannote and TitaNet models processed 24 synthetic conversations. The test used reference text and timings to assess attribution separately from speech recognition errors.
+The local pyannote and TitaNet models processed 24 synthetic conversations. The test used reference text and timings to measure speaker attribution.
 
 | Audio representation | Diarization error | Isolated-turn recall |
 | --- | ---: | ---: |
@@ -65,7 +67,7 @@ The worker can read speaker and timing fields from supported recognition output.
 .\transcribe.exe --base-url 'http://127.0.0.1:8000/v1' --model 'speaker-asr' --output-dir .\transcripts --provider-profile openai-diarized-v1 -- .\call.opus
 ```
 
-Replace the example model with the deployment name your endpoint expects. Use HTTPS for a remote service. This profile requests `diarized_json` and sends `chunking_strategy=auto`. Use it without `--timestamps`. [Provider API contract](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create/)
+Replace the example model with the deployment name your endpoint expects. Use HTTPS for a remote service. This profile requests `diarized_json` and sends `chunking_strategy=auto`. Omit `--timestamps` with this profile. [Provider API contract](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create/)
 
 Point the manifest's `artifact` at the saved response or completed job record in `.audio-capture-jobs`. For a split file, use its `-combined.json` result. The job record and combined result retain request provenance.
 

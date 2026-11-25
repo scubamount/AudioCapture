@@ -1,6 +1,20 @@
 # Benchmark figures
 
-The speaker figures cover synthetic English conversations with supplied words and timestamps. The storage figures describe encoder replays on synthetic and saved tracks. [Aggregate inputs](data.json) · [Performance measurements](../performance.md)
+| Workload | Figures and methods |
+| --- | --- |
+| Offline English MP4 transcription | [Elapsed time](#offline-mp4-transcription) |
+| Audio recording and storage | [Opus profiles](#opus-storage) · [Skip silence and Speech DTX](#silence-removal-and-opus-dtx) |
+| Recording cost and endurance | [CPU and memory](#recording-cost) · [Ten-minute release check](live-performance.md#ten-minute-windows-release-check) |
+| Speaker labels and names | [Speaker attribution](#speaker-attribution) · [Automatic names](#automatic-names) · [Live speaker labels](#live-speaker-labels) |
+| Figure generation | [Reproduce the figures](#reproduce-the-figures) |
+
+## Offline MP4 transcription
+
+![Observed times to transcribe one English MP4 with 348.648 seconds of decoded audio. Native UI took 118.83 seconds, MCP took 135.41 seconds, and CLI took 154.40 seconds.](../images/benchmarks/local-mp4.svg)
+
+The dashed line marks the decoded audio duration. Each bar shows one completed run of the CPU worker. The tests used the same input and model, with varying machine load. The chart describes completion time on that sample. [Exact results and measurement limits](../performance.md#offline-mp4-transcription)
+
+The speaker figures below use synthetic English conversations with supplied words and timestamps. The storage figures use encoder replays on synthetic and saved tracks. [Aggregate inputs](data.json)
 
 ## Speaker attribution
 
@@ -97,6 +111,6 @@ python docs/benchmarks/generate.py --check
 
 The check validates measurement ranges and count totals. It compares each generated figure with its checked-in bytes. It runs without audio, models, or network access.
 
-The aggregate inputs contain pooled speaker durations, naming counts, paired encoded byte counts, and source hashes. The recording inputs contain the paired CPU and memory samples. The generator calculates the chart differences from those samples. [Aggregate inputs](data.json) · [Recording inputs](live-performance.json) · [Generator](generate.py)
+The aggregate inputs contain MP4 run times, pooled speaker durations, naming counts, paired encoder byte counts, and source hashes. The recording inputs contain the paired CPU and memory samples. The generator calculates the chart differences from those samples. [Aggregate inputs](data.json) · [Recording inputs](live-performance.json) · [Generator](generate.py)
 
 When embedding a figure elsewhere, use its image description above. Keep a link to the adjacent table for exact values and scope.

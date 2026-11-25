@@ -1,8 +1,34 @@
 # Performance on Windows 11 x64
 
-The recorder uses native Windows controls and WASAPI. Recording does not start the transcription worker or load a speech model. Opening the guided workflow starts a separate process. Long-file conversion and the optional local diarizer can use FFmpeg. The worker can use ffprobe to verify timestamps.
+The recorder uses native Windows controls and WASAPI. A recording-only session runs without a speech model. Offline MP4 transcription loads its model in a separate Rust worker on demand. Endpoint jobs can use FFmpeg for audio conversion and ffprobe for duration.
 
-The measurements on this page come from builds tested before v2.0.0. The speaker-enabled prototype ZIP measured 2,035,192 bytes. It included a 1,629,696-byte recorder, a 2,522,112-byte worker, and a 5,682-byte adapter. The earlier speech-profile prototype ZIP measured 1,344,067 bytes and had the same recorder size. Install the optional Python runtime and models separately.
+| Measure | Results |
+| --- | --- |
+| Completed English MP4, Windows UI, MCP and CLI | [Offline MP4 transcription](#offline-mp4-transcription) |
+| Selected source recording, endurance and live text | [Independent capture and transcription](benchmarks/live-performance.md) |
+| File size and speech agreement | [Opus profiles](#size-and-speech-recognition) · [Skip silence and Speech DTX](benchmarks/README.md#silence-removal-and-opus-dtx) |
+| Speaker attribution and naming | [Completed files](#speaker-attribution) · [Live speech qualification](benchmarks/live-quality.md) |
+| Raw counts and chart source | [Benchmark figures](benchmarks/README.md) |
+
+## Offline MP4 transcription
+
+The v2.2.0 acceptance candidate processed 348.648 seconds of decoded audio from one English MP4. The Windows 11 x64 test ran Whisper `base.en` on a Ryzen 7 7800X3D with up to four inference threads. The three clients produced identical bytes in both output files. Each transcript contained 1,094 words and 108 timed segments.
+
+![For 348.648 seconds of audio, observed completion times were 118.83 seconds through the native UI, 135.41 through MCP, and 154.40 through the headless CLI.](images/benchmarks/local-mp4.svg)
+
+| Interface | Elapsed | Elapsed / audio duration |
+| --- | ---: | ---: |
+| Native UI | 118.83 s | 0.341 |
+| Stdio MCP | 135.41 s | 0.388 |
+| Headless CLI | 154.40 s | 0.443 |
+
+The timers cover job submission and result verification. Each run imported the model before timing began. Peak process commit ranged from 569.9 to 570.6 MiB.
+
+Each interface ran once under varying machine load. Treat the results as observations for this file. Comparing interface speed requires repeated matched runs. Human-reference accuracy and simultaneous recording performance remain open for the local model. [Acceptance results and method](../openspec/changes/integrate-native-workflows-and-agent-control/tasks.md#windows-package-check) · [Test harness](../rust/tools/test_local_mp4.py)
+
+## Earlier package sizes
+
+Before v2.0.0, the speaker-enabled prototype ZIP measured 2,035,192 bytes. It included a 1,629,696-byte recorder, a 2,522,112-byte worker, and a 5,682-byte adapter. The earlier speech-profile prototype ZIP measured 1,344,067 bytes and had the same recorder size. Both measurements exclude the separately installed models and Python runtime.
 
 ## Idle window
 

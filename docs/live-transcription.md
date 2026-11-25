@@ -1,6 +1,6 @@
 # Live transcription
 
-Use the recorder to keep audio, text, or both. Use the companion worker to send approved audio to a compatible endpoint. [Operator guide](../rust/README.md)
+Use separate controls to keep a recording, a live transcript, or both. Live transcription sends approved audio to the endpoint you configure. For offline recognition, use the local workflow on a finished English MP4. [Operator guide](../rust/README.md) · [Offline MP4 setup](../rust/README.md#transcribe-an-mp4-offline)
 
 ## Choose the sources
 
@@ -40,7 +40,7 @@ Select **Start transcription**. Review the sources, endpoint, model, and output 
 | **Stop transcription** | Stops taking new audio for text. The worker saves accepted results. Recording can continue. |
 | **Stop both** | Ends both active intervals at the same source position. Each output finalizes independently. |
 
-![Audio Capture at narrow width on Windows. Start recording and Start transcription are separate controls above the completed-file batch actions.](images/live-transcription.png)
+![Audio Capture transcription settings, including endpoint, model, and output folder.](images/live-transcription.png)
 
 The live status shows when the admission slot is available. A waiting request starts no transcript coverage. Select **Cancel transcription start** if you no longer want to wait. The selected sources stay fixed while capture is active. End the active intervals before you change the source scope.
 
@@ -81,9 +81,9 @@ See the byte and duration results from paired runs with regular Opus, speech DTX
 
 ## Use finished files or refine speakers
 
-Select **Transcribe files…** to choose completed audio for a batch. The batch uses the service, model, API key variable, output folder, and timestamps from **Transcription settings**. Review the inputs and destination before you confirm. The worker reports each file's outcome. With the default request limit, an active live transcript defers pending batch work against the same endpoint. [Batch commands](../rust/README.md#transcribe-completed-files)
+Select **Transcribe files…**. Use **Use an endpoint…** to submit finished files to the service from **Transcription settings**. Check the inputs and destination before you approve. With the default request limit, an active live transcript defers a pending batch against the same endpoint. [Endpoint batch commands](../rust/README.md#use-an-endpoint-for-completed-files)
 
-To pair a file batch with a local speaker session, run the following command. The guided console shows the files and speaker session before approval.
+To pair an endpoint batch with a local speaker session, run the following command. Check the files and manifest in the preview before you approve.
 
 ```powershell
 .\transcribe.exe batch-queue submit --attribute-session '.\offline-session.json' -- '.\Discord.opus' '.\Microphone.opus'

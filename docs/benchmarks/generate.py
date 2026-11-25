@@ -355,7 +355,52 @@ def live_recording_cost(measurements):
     return fig.finish()
 
 
+def local_mp4(data):
+    trial = data["local_mp4"]
+    duration = trial["audio_seconds"]
+    runs = trial["runs"]
+    desc = [f"One English MP4 supplied {duration:.3f} seconds of decoded audio."]
+    desc.extend(f'{run["interface"]} completed in {run["elapsed_seconds"]:.2f} seconds.'
+                for run in runs)
+    desc.append("Each interface ran once under varying machine load.")
+    fig = Figure("Offline MP4 transcription time", " ".join(desc), 358)
+    fig.text(32, 80, f'One English MP4  ·  {trial["model"]} on CPU  ·  One run per interface',
+             size=18, color=MUTED)
+    left, right = 186, 750
+    axis_step = 60
+    longest = max(duration, *(run["elapsed_seconds"] for run in runs))
+    axis_max = axis_step * ceil((longest + 20) / axis_step)
+
+    def position(seconds):
+        return left + (right - left) * seconds / axis_max
+
+    fig.text(left, 121, "Elapsed time in seconds", bold=True)
+    for tick in range(0, axis_max + 1, axis_step):
+        x = position(tick)
+        fig.text(x, 150, tick, anchor="middle", size=14, color=MUTED)
+        fig.line(x, 160, x, 299)
+    for index, run in enumerate(runs):
+        y = 182 + 47 * index
+        end = position(run["elapsed_seconds"])
+        fig.text(32, y + 6, run["interface"], bold=True)
+        fig.rect(left, y - 10, end - left, 20, TEAL)
+        fig.text(end + 10, y + 6, f'{run["elapsed_seconds"]:.2f} s', size=15, bold=True)
+    reference = position(duration)
+    fig.line(reference, 160, reference, 299, dashed=True, color=INK, weight=2)
+    fig.text(reference, 121, f"{duration:.3f} s decoded audio", anchor="end", color=MUTED)
+    fig.text(32, 332, "Machine load varied. All three runs produced identical text and timed JSON.",
+             color=MUTED)
+    return fig.finish()
+
+
 def validate(data):
+    mp4 = data["local_mp4"]
+    runs = mp4["runs"]
+    if len(runs) != 3 or len({run["interface"] for run in runs}) != 3:
+        raise ValueError("Expected one observation for each of the three MP4 interfaces")
+    durations = [mp4["audio_seconds"], *(run["elapsed_seconds"] for run in runs)]
+    if not all(isfinite(seconds) and seconds > 0 for seconds in durations):
+        raise ValueError("Expected positive finite MP4 durations")
     for model in data["acoustic"]:
         for row in model["results"]:
             if row["ref_ms"] <= 0 or min(row[k] for k in ("miss_ms", "false_ms", "confusion_ms")) < 0:
@@ -415,7 +460,7 @@ def main():
     figures = [("speaker-attribution", speaker_attribution(data)), ("automatic-naming", automatic_naming(data)),
                ("opus-storage", opus_storage(data)), ("live-silence-storage", silence_storage(data)),
                ("live-speaker-labels", live_speaker_labels(data)),
-               ("live-recording-cost", live_recording_cost(performance))]
+               ("live-recording-cost", live_recording_cost(performance)), ("local-mp4", local_mp4(data))]
     for name, svg in figures:
         path = DEST / f"{name}.svg"
         content = svg.encode("utf-8")
