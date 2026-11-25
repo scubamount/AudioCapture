@@ -1,4 +1,5 @@
 mod live;
+mod local_batch;
 mod recents;
 
 use std::cell::Cell;
@@ -9,10 +10,9 @@ use std::ptr;
 
 use crate::native_live::{Options as LiveOptions, Status as LiveStatus, Worker as LiveWorker};
 use crate::native_window::*;
-use crate::worker_launch::{launch_batch_manager, launch_transcription};
 use audio_capture::{capture, prefs, record, sources};
 use std::time::Instant;
-use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK};
+use windows_sys::Win32::UI::WindowsAndMessaging::{EN_CHANGE, MB_ICONERROR, MB_OK};
 
 type Hwnd = *mut c_void;
 #[link(name = "user32")]
@@ -43,6 +43,8 @@ const EM_LINESCROLL: u32 = 0x00b6;
 const CBN_SELCHANGE: u16 = 1;
 const LBN_SELCHANGE: u16 = 1;
 const BN_CLICKED: u16 = 0;
+pub(crate) const TRANSCRIPTION_SETUP_NEEDED: &str =
+    "Open Transcription settings to load a config or enter an endpoint and model.";
 const SESSION_TIMER: usize = 1;
 const FORMATS: [&str; 5] = ["wav", "mp3", "opus", "flac", "opus-speech"];
 const SAMPLE_RATES: [u32; 4] = [0, 16_000, 44_100, 48_000];
@@ -187,32 +189,6 @@ fn set_changed(view: &View, id: i32, value: &str) {
     }
 }
 
-fn transcribe_files(view: &View) {
-    let files = rfd::FileDialog::new()
-        .set_title("Select files to transcribe")
-        .set_directory(text(view, FOLDER))
-        .add_filter(
-            "Audio and media files",
-            audio_capture::TRANSCRIPTION_EXTENSIONS,
-        )
-        .add_filter("Finalized recording sessions", &["jsonl"])
-        .pick_files();
-    let Some(files) = files.filter(|files| !files.is_empty()) else {
-        return;
-    };
-    let config = live::batch_transcription_config(view);
-    if let Err(error) = launch_transcription(&files, config.as_ref()) {
-        unsafe {
-            MessageBoxW(
-                view.hwnd as Hwnd,
-                wide(&error).as_ptr(),
-                wide("Could not open transcription").as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
-        }
-    }
-}
-
 fn retain_live_selections(
     selected: &mut HashMap<u32, u64>,
     old: &[sources::Process],
@@ -260,6 +236,7 @@ pub struct Controller {
     close_errors: Vec<String>,
     close_recovery: Option<LiveStatus>,
     timer_on: Cell<bool>,
+    local_batch: local_batch::Panel,
     paused: bool,
     status: String,
     discovery_warning: Option<String>,
@@ -302,13 +279,14 @@ impl Controller {
             pending_config: None,
             finishing: Vec::new(),
             last_live: LiveStatus::default(),
-            live_note: "Ready".into(),
+            live_note: TRANSCRIPTION_SETUP_NEEDED.into(),
             recording_started: None,
             recording_warning: None,
             closing: false,
             close_errors: Vec::new(),
             close_recovery: None,
             timer_on: Cell::new(false),
+            local_batch: Default::default(),
             paused: false,
             status,
             discovery_warning: None,
@@ -935,7 +913,8 @@ impl Controller {
     }
 
     fn update_timer(&self, view: &View) {
-        let needed = !self.close_ready() || self.recents.needs_tick();
+        let needed =
+            !self.close_ready() || self.recents.needs_tick() || self.local_batch.needs_tick();
         if self.timer_on.get() == needed {
             return;
         }
@@ -959,6 +938,19 @@ impl Controller {
                 self.live_command(view, id);
                 self.show_status(view);
             }
+            return;
+        }
+        if notification == EN_CHANGE as u16
+            && matches!(id, LIVE_ENDPOINT | LIVE_MODEL | LIVE_KEY_ENV)
+        {
+            if self.live.is_none() {
+                self.transcription_connection_changed(view);
+            }
+            return;
+        }
+        if LOCAL_PANEL.contains(&id) {
+            self.local_batch.command(view, id, notification);
+            self.update_timer(view);
             return;
         }
         if self.recent_command(view, id, notification) {
@@ -1038,13 +1030,6 @@ impl Controller {
             {
                 self.settings.folder = path;
                 set_text(view, FOLDER, &self.settings.folder.to_string_lossy());
-            }
-        } else if id == TRANSCRIBE_FILES && notification == BN_CLICKED {
-            transcribe_files(view);
-            return;
-        } else if id == BATCH_MANAGE && notification == BN_CLICKED {
-            if let Err(error) = launch_batch_manager() {
-                self.status = error;
             }
         } else if id == LIVE_BROWSE && self.live.is_none() && notification == BN_CLICKED {
             if let Some(folder) = rfd::FileDialog::new()
@@ -1228,7 +1213,13 @@ impl Controller {
         ))
     }
 
+    pub fn local_panel(&mut self, view: &View, open: bool, current: bool) {
+        self.local_batch.panel(view, open, current);
+        self.update_timer(view);
+    }
+
     pub fn tick(&mut self, view: &View) {
+        self.local_batch.poll(view);
         if self.closing && (self.session.is_some() || self.live.is_some()) {
             self.stop_both();
         }
@@ -1287,6 +1278,7 @@ impl Controller {
             && self.live.is_none()
             && self.finishing.is_empty()
             && self.retiring.is_empty()
+            && !self.local_batch.approving()
     }
 
     pub fn shutdown(&mut self, view: &View) -> Result<(), String> {

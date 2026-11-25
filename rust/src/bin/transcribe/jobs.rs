@@ -1,9 +1,11 @@
-use crate::{chunks, review, transport};
+use crate::{chunks, review, transport, video};
+use audio_capture::is_native_video;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,6 +79,8 @@ struct Job {
     chunk_offset_frames: Option<u64>,
     #[serde(default)]
     chunk_frames: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio_extraction: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -220,6 +224,7 @@ pub(super) fn parse_response(
 pub(super) fn output_duration(path: &Path) -> Option<f64> {
     // Duration is optional. Never assign timing based on an unavailable probe.
     let result = Command::new("ffprobe")
+        .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
         .args([
             "-v",
             "error",
@@ -366,6 +371,19 @@ fn request_key<T: Serialize>(
     }
     .map_err(|error| error.to_string())?;
     digest(identity.as_slice())
+}
+
+const NATIVE_VIDEO_EXTRACTION: &str = "windows-media-foundation-pcm16-v1";
+
+fn media_request_key<T: Serialize>(
+    legacy: &T,
+    profile: Option<transport::ProviderProfile>,
+    extraction: Option<&str>,
+) -> Result<String, String> {
+    match extraction {
+        Some(extraction) => request_key(&("audio-extraction", extraction, legacy), profile),
+        None => request_key(legacy, profile),
+    }
 }
 
 pub(super) fn is_media(path: &Path) -> bool {
@@ -625,7 +643,11 @@ pub(super) fn process_file(
     if !is_media(input) {
         return Err("Input extension is not a recognized audio or media type".into());
     }
+    let native_video = is_native_video(input);
     let input = fs::canonicalize(input).map_err(|e| format!("Cannot open input: {e}"))?;
+    if !native_video && is_native_video(&input) {
+        return Err("Select the video file using its original video extension.".into());
+    }
     // Keep the input stable between identification and upload.
     let mut stable = OpenOptions::new()
         .read(true)
@@ -638,14 +660,14 @@ pub(super) fn process_file(
     }
     let limit = options.max_file_mib * 1024 * 1024;
     let oversized = metadata.len() > limit;
-    if oversized && !options.chunk_long {
+    if !native_video && oversized && !options.chunk_long {
         return Err("Input exceeds the configured file limit. Use --chunk-long to convert it into bounded WAV chunks.".into());
     }
     let source_sha256 = digest(&mut stable)?;
     if let Some(context) = &options.coordinated {
         context.validate_input(&source_sha256)?;
     }
-    if !oversized {
+    if !native_video && !oversized {
         return process_part(
             &input,
             &source_sha256,
@@ -658,7 +680,8 @@ pub(super) fn process_file(
         )
         .map(|part| part.track);
     }
-    let aggregate_key = request_key(
+    let extraction = native_video.then_some(NATIVE_VIDEO_EXTRACTION);
+    let aggregate_key = media_request_key(
         &(
             input.to_string_lossy().as_ref(),
             &source_sha256,
@@ -669,6 +692,7 @@ pub(super) fn process_file(
             limit,
         ),
         options.provider_profile,
+        extraction,
     )?;
     let aggregate_state = job_dir.join(format!("{aggregate_key}.aggregate.json"));
     let aggregate_lock = job_dir.join(format!("{aggregate_key}.aggregate.lock"));
@@ -717,6 +741,11 @@ pub(super) fn process_file(
                     .and_then(|v| v.get("source_sha256"))
                     .and_then(|v| v.as_str())
                     == Some(source_sha256.as_str())
+                    && manifest
+                        .as_ref()
+                        .and_then(|v| v.get("audio_extraction"))
+                        .and_then(|v| v.as_str())
+                        == extraction
                     && manifest
                         .as_ref()
                         .and_then(|value| value.get("provider_profile"))
@@ -794,12 +823,16 @@ pub(super) fn process_file(
         .as_ref()
         .map(|context| context.audio_staging(limit))
         .transpose()?;
-    chunks::for_each_wav(&input, job_dir, limit, |path, offset, frames| {
+    let transcribe_chunk = |path: &Path, offset, frames| {
         let track = process_part(
             &input,
             &source_sha256,
             path,
-            Some((offset, frames)),
+            Some(DecodedPart {
+                offset,
+                frames,
+                extraction,
+            }),
             options,
             endpoint,
             key,
@@ -813,7 +846,13 @@ pub(super) fn process_file(
         })?;
         parts.push((offset, frames, track));
         Ok(())
-    })?;
+    };
+    if native_video {
+        let pcm = video::PcmReader::open(&stable)?;
+        chunks::for_each_pcm(pcm, job_dir, limit, transcribe_chunk)?;
+    } else {
+        chunks::for_each_wav(&input, job_dir, limit, transcribe_chunk)?;
+    }
     if parts.is_empty() {
         return Err("The input produced no audio chunks".into());
     }
@@ -857,7 +896,7 @@ pub(super) fn process_file(
         }
         raw_parts.push(raw_part);
     }
-    let id = request_key(
+    let id = media_request_key(
         &(
             input.to_string_lossy().as_ref(),
             &source_sha256,
@@ -869,12 +908,16 @@ pub(super) fn process_file(
             &raw_parts,
         ),
         options.provider_profile,
+        extraction,
     )?;
     let prefix = format!("{}-{}", safe_name(&input), &id[..16]);
     let mut manifest = serde_json::json!({
         "source": input, "source_sha256": source_sha256,
         "model": options.model, "sample_rate": 16000, "parts": raw_parts
     });
+    if let Some(extraction) = extraction {
+        manifest["audio_extraction"] = serde_json::Value::String(extraction.to_owned());
+    }
     if let Some(profile) = options.provider_profile {
         manifest["provider_profile"] = serde_json::to_value(profile).map_err(|e| e.to_string())?;
         manifest["endpoint"] = serde_json::Value::String(transport::canonical_key(endpoint));
@@ -909,23 +952,31 @@ pub(super) fn process_file(
     })
 }
 
+struct DecodedPart {
+    offset: u64,
+    frames: u64,
+    extraction: Option<&'static str>,
+}
+
 fn process_part(
     input: &Path,
     source_sha256: &str,
     upload: &Path,
-    part: Option<(u64, u64)>,
+    part: Option<DecodedPart>,
     options: &Options,
     endpoint: &transport::Endpoint,
     key: Option<&str>,
     job_dir: &Path,
 ) -> Result<PartOutput, String> {
+    let extraction = part.as_ref().and_then(|part| part.extraction);
+    let part = part.map(|part| (part.offset, part.frames));
     let part_sha256 = if part.is_some() {
         digest(File::open(upload).map_err(|e| e.to_string())?)?
     } else {
         source_sha256.to_owned()
     };
     let job_key = |path: &Path| {
-        request_key(
+        media_request_key(
             &(
                 path.to_string_lossy().as_ref(),
                 source_sha256,
@@ -937,13 +988,14 @@ fn process_part(
                 options.timestamps,
             ),
             options.provider_profile,
+            extraction,
         )
     };
     let id = job_key(input)?;
     // Legacy IDs include the path. Coordinate identical approved bytes under
     // one content lock, while retaining each file's normal outputs and IDs.
     let content = if let Some(context) = &options.coordinated {
-        let key = request_key(
+        let key = media_request_key(
             &(
                 source_sha256,
                 &part_sha256,
@@ -958,6 +1010,7 @@ fn process_part(
                     .map(|ext| ext.to_string_lossy().to_ascii_lowercase()),
             ),
             options.provider_profile,
+            extraction,
         )?;
         let directory = job_dir.join("content");
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
@@ -1028,6 +1081,7 @@ fn process_part(
             || job.provider_profile != options.provider_profile
             || job.chunk_offset_frames != part.map(|(offset, _)| offset)
             || job.chunk_frames != part.map(|(_, frames)| frames)
+            || job.audio_extraction.as_deref() != extraction
             || !valid_output_path(&job.text, &options.output_dir, &base, ".txt")
             || job
                 .json
@@ -1108,6 +1162,7 @@ fn process_part(
         json: None,
         chunk_offset_frames: part.map(|(offset, _)| offset),
         chunk_frames: part.map(|(_, frames)| frames),
+        audio_extraction: extraction.map(str::to_owned),
     };
     // Persist the ambiguity before sending any bytes. A crash cannot trigger an
     // implicit duplicate upload on the next invocation.
@@ -1243,6 +1298,19 @@ fn part_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_video_job_identity_is_separate_from_legacy_uploads_and_chunks() {
+        let identity = ("approved source", "request settings", (0, 16_000));
+        let legacy = request_key(&identity, None).unwrap();
+        assert_eq!(media_request_key(&identity, None, None).unwrap(), legacy);
+        let extracted = media_request_key(&identity, None, Some(NATIVE_VIDEO_EXTRACTION)).unwrap();
+        assert_ne!(extracted, legacy);
+        assert_ne!(
+            media_request_key(&identity, None, Some("different extraction")).unwrap(),
+            extracted,
+        );
+    }
 
     #[test]
     fn rejects_oversized_input_without_reading_locked_contents() {

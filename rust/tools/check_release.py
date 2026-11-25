@@ -1,7 +1,8 @@
-"""Exercise the speaker and memory commands of an extracted transcribe.exe."""
+"""Exercise local control, speaker, and memory commands in the Windows package."""
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ def check_worker(worker, root):
     def run(*args, answers="", expected=0):
         result = subprocess.run(
             [worker, *args], cwd=root, input=answers, capture_output=True,
-            encoding="utf-8", timeout=20,
+            encoding="utf-8", timeout=20, creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if result.returncode != expected:
             raise RuntimeError(
@@ -70,13 +71,61 @@ def check_worker(worker, root):
     assert first["stream_id"] == replay["stream_id"] and first["cursor"] == replay["cursor"]
 
 
+def check_local_control(worker, root):
+    env = os.environ.copy()
+    env.pop("AUDIO_CAPTURE_GRANT_REF", None)
+    env.update(AUDIO_CAPTURE_STATE_DIR=str(root / "control-state"), PATH="")
+
+    def run(*args, messages=()):
+        result = subprocess.run(
+            args, cwd=root, env=env, capture_output=True, encoding="utf-8",
+            input="".join(json.dumps(message) + "\n" for message in messages),
+            timeout=20, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        assert result.returncode == 0 and not result.stderr, (result.returncode, result.stderr)
+        return [json.loads(line) for line in result.stdout.splitlines()]
+
+    (capabilities,) = run(worker, "control", "diagnostics", "capabilities", "--json")
+    assert capabilities["ok"] and capabilities["schema_version"] == 1
+    assert capabilities["provider"] == "local" and capabilities["file_types"] == ["mp4"]
+    assert capabilities["profile_id"] == "local-whisper"
+
+    launcher = worker.with_name("audio-capture.exe").resolve(strict=True)
+    negotiation, listing = run(launcher, "mcp", messages=(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "release-check", "version": "1"},
+        }},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    ))
+    assert (negotiation["jsonrpc"], negotiation["id"]) == ("2.0", 1)
+    assert negotiation["result"]["protocolVersion"] == "2025-11-25"
+    assert "tools" in negotiation["result"]["capabilities"]
+    assert (listing["jsonrpc"], listing["id"]) == ("2.0", 2)
+    tools = {tool["name"]: tool for tool in listing["result"]["tools"]}
+    assert set(tools) == {
+        "audio_capture_batch", "audio_capture_diagnostics",
+        "audio_capture_profile", "audio_capture_transcript",
+    }
+    for tool in tools.values():
+        assert tool["inputSchema"]["type"] == tool["outputSchema"]["type"] == "object"
+        assert {"schema_version", "action"} <= set(tool["inputSchema"]["required"])
+        assert {"schema_version", "ok"} <= set(tool["outputSchema"]["required"])
+    assert set(tools["audio_capture_batch"]["inputSchema"]["properties"]["action"]["enum"]) == {
+        "preview", "commit", "list", "status", "cancel",
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("worker", type=Path, help="Path to the extracted transcribe.exe")
     worker = parser.parse_args().worker.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="audio-capture-speaker-cli-") as directory:
-        check_worker(worker, Path(directory))
-    print("Packaged speaker and memory commands passed.")
+    with tempfile.TemporaryDirectory(prefix="audio-capture-release-") as directory:
+        root = Path(directory)
+        check_local_control(worker, root)
+        check_worker(worker, root)
+    print("Packaged local control, speaker, and memory commands passed.")
 
 
 if __name__ == "__main__":

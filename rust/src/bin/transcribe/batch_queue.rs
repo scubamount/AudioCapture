@@ -82,7 +82,8 @@ pub(super) fn snapshot(options: &jobs::Options) -> Vec<Input> {
                 if !metadata.is_file() || metadata.len() == 0 {
                     return Err("Expected a nonempty recording".into());
                 }
-                if !options.chunk_long
+                if !audio_capture::is_native_video(&path)
+                    && !options.chunk_long
                     && metadata.len() > options.max_file_mib.saturating_mul(1024 * 1024)
                 {
                     return Err("File exceeds the confirmed upload limit".into());
@@ -109,6 +110,40 @@ pub(super) fn print_issues(entries: &[Input], output: &mut impl Write) -> io::Re
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_container_size_does_not_reject_queue_approval() {
+        let directory = std::env::temp_dir().join(id("queue_video_limit").unwrap());
+        fs::create_dir(&directory).unwrap();
+        let video_path = directory.join("selected.MP4");
+        let audio_path = directory.join("selected.wav");
+        for path in [&video_path, &audio_path] {
+            File::create(path)
+                .unwrap()
+                .set_len(1024 * 1024 + 1)
+                .unwrap();
+        }
+        let entries = snapshot(&jobs::Options {
+            max_file_mib: 1,
+            files: vec![video_path.clone(), audio_path.clone()],
+            ..Default::default()
+        });
+        fs::remove_file(video_path).unwrap();
+        fs::remove_file(audio_path).unwrap();
+        fs::remove_dir(directory).unwrap();
+
+        assert!(entries[0].digest.is_some() && entries[0].issue.is_none());
+        assert!(entries[1].digest.is_none());
+        assert_eq!(
+            entries[1].issue.as_deref(),
+            Some("File exceeds the confirmed upload limit")
+        );
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]

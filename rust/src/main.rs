@@ -1,10 +1,51 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod native_controller;
 mod native_layout;
 mod native_live;
 mod native_window;
 mod worker_launch;
+
+fn run_windowless_worker(
+    command: &str,
+    args: impl Iterator<Item = std::ffi::OsString>,
+) -> std::process::ExitCode {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, ExitCode, Stdio};
+    use windows_sys::Win32::System::Threading::DETACHED_PROCESS;
+
+    let status = std::env::current_exe().and_then(|exe| {
+        Command::new(exe.with_file_name("transcribe.exe"))
+            .arg(command)
+            .args(args)
+            .creation_flags(DETACHED_PROCESS)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+    });
+    match status {
+        Ok(status) => ExitCode::from(
+            status
+                .code()
+                .and_then(|code| code.try_into().ok())
+                .unwrap_or(1),
+        ),
+        Err(_) => {
+            let message = "Cannot start transcribe.exe next to Audio Capture.";
+            if command == "control" {
+                println!(
+                    "{}",
+                    serde_json::json!({"ok":false,"schema_version":1,
+                        "error":{"code":"operation_failed","message":message}})
+                );
+            } else {
+                eprintln!("{message}");
+            }
+            ExitCode::FAILURE
+        }
+    }
+}
 
 fn check_transcription_config(mut args: std::env::ArgsOs) -> Result<(), String> {
     use audio_capture::transcription_config::{FILENAME, TranscriptionConfig};
@@ -24,7 +65,17 @@ fn check_transcription_config(mut args: std::env::ArgsOs) -> Result<(), String> 
 fn main() -> std::process::ExitCode {
     let mut args = std::env::args_os();
     args.next();
-    if args.next().as_deref() == Some(std::ffi::OsStr::new("--check-transcription-config")) {
+    let command = args.next();
+    if matches!(
+        command.as_deref().and_then(std::ffi::OsStr::to_str),
+        Some("mcp" | "--mcp")
+    ) {
+        return run_windowless_worker("mcp", args);
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("control")) {
+        return run_windowless_worker("control", args);
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("--check-transcription-config")) {
         return match check_transcription_config(args) {
             Ok(()) => {
                 println!("Transcription config is valid.");

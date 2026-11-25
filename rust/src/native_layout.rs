@@ -180,6 +180,30 @@ fn positions<F: Fn(i32) -> bool>(width: i32, visible: &F) -> (Vec<(i32, Rect)>, 
     row.add(BATCH_MANAGE, 121, button);
     row.next();
 
+    row.path(LOCAL_INPUT_LABEL, 125, LOCAL_INPUT, LOCAL_INPUT_BROWSE);
+    row.next();
+    row.path(LOCAL_OUTPUT_LABEL, 125, LOCAL_OUTPUT, LOCAL_OUTPUT_BROWSE);
+    row.next();
+    row.add(LOCAL_PREVIEW, 143, button);
+    row.add(LOCAL_APPROVE, 145, button);
+    row.add(LOCAL_CANCEL, 112, button);
+    row.next();
+    row.readout(LOCAL_STATUS_LABEL, 125, LOCAL_STATUS, 78);
+    row.readout(LOCAL_REVIEW_LABEL, 125, LOCAL_REVIEW, 168);
+    row.add(LOCAL_PREVIOUS, 113, input);
+    row.add(LOCAL_NEXT, 104, input);
+    row.next();
+    row.path(LOCAL_MODEL_LABEL, 125, LOCAL_MODEL, LOCAL_MODEL_BROWSE);
+    row.next();
+    row.add(LOCAL_IMPORT, 141, input);
+    row.add(ENDPOINT_FILES, 147, input);
+    row.add(ENDPOINT_QUEUE, 139, input);
+    row.next();
+    row.field(ENDPOINT_REPLY_LABEL, 125, ENDPOINT_REPLY, 365, 130, input);
+    row.add(ENDPOINT_SEND, 109, input);
+    row.add(ENDPOINT_CLOSE, 119, input);
+    row.next();
+
     row.heading(RECORDING_SETTINGS_SECTION);
     row.field(PROFILE_LABEL, 114, PROFILE, PROFILE_WIDTH, 250, input);
     row.next();

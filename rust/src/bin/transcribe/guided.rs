@@ -5,6 +5,7 @@ use crate::{
     },
     batch_queue, jobs, transport,
 };
+use audio_capture::is_native_video;
 use audio_capture::transcription_config::{
     GUI_CONFIG_ENV, GUI_PID_ENV, TranscriptionConfig, is_gui_environment_variable,
 };
@@ -156,9 +157,18 @@ fn configure(
 fn ask_config(
     ui: &mut Prompts<'_, impl BufRead, impl Write>,
     default_dir: &Path,
-) -> io::Result<(TranscriptionConfig, String)> {
+) -> io::Result<Option<(TranscriptionConfig, String)>> {
+    writeln!(ui.output, "No transcription config is loaded.")?;
+    writeln!(
+        ui.output,
+        "Use Load config in Transcription settings, or enter the service settings below."
+    )?;
     let (base_url, destination) = loop {
-        let base = ui.ask("API base URL (HTTPS or loopback HTTP, without credentials):")?;
+        let base =
+            ui.ask("API base URL (HTTPS or loopback HTTP, no credentials, Enter to cancel):")?;
+        if base.is_empty() {
+            return Ok(None);
+        }
         match transport::endpoint(&base, false) {
             Ok(endpoint) => break (base, transport::canonical_key(&endpoint)),
             Err(error) => writeln!(ui.output, "{error}")?,
@@ -199,7 +209,7 @@ fn ask_config(
     } else {
         dir.into()
     };
-    Ok((
+    Ok(Some((
         TranscriptionConfig {
             endpoint: base_url,
             model,
@@ -208,7 +218,7 @@ fn ask_config(
             ..Default::default()
         },
         destination,
-    ))
+    )))
 }
 
 fn configure_checked<W: Write>(
@@ -223,7 +233,7 @@ fn configure_checked<W: Write>(
     let mut ui = Prompts { input, output };
     writeln!(
         ui.output,
-        "Transcribe selected recordings. Press Ctrl+C to cancel."
+        "Transcribe selected files. Press Ctrl+C to cancel."
     )?;
     let default_dir = files[0].with_file_name("transcripts");
     let configured = config.is_some();
@@ -234,7 +244,12 @@ fn configure_checked<W: Write>(
             writeln!(ui.output, "Using transcription config.")?;
             (config, transport::canonical_key(&endpoint))
         }
-        None => ask_config(&mut ui, &default_dir)?,
+        None => {
+            let Some(settings) = ask_config(&mut ui, &default_dir)? else {
+                return Ok(None);
+            };
+            settings
+        }
     };
     let TranscriptionConfig {
         endpoint: base_url,
@@ -258,7 +273,9 @@ fn configure_checked<W: Write>(
     } else {
         ui.confirm("Request timestamps?", false)?
     };
-    let chunk_long = ui.confirm("Split files over 25 MiB with FFmpeg?", false)?;
+    let has_audio_files = files.iter().any(|file| !is_native_video(file));
+    let chunk_long =
+        has_audio_files && ui.confirm("Split audio files over 25 MiB with FFmpeg?", false)?;
     let review = if ui.confirm("Create a local HTML review?", true)? {
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -270,8 +287,20 @@ fn configure_checked<W: Write>(
     };
 
     writeln!(ui.output, "\nSelected files:")?;
+    let mut has_video = false;
     for file in &files {
-        writeln!(ui.output, "  {}", file.display())?;
+        if is_native_video(file) {
+            has_video = true;
+            writeln!(ui.output, "  {} (extract audio locally)", file.display())?;
+        } else {
+            writeln!(ui.output, "  {}", file.display())?;
+        }
+    }
+    if has_video {
+        writeln!(
+            ui.output,
+            "Video files use the first audio stream. Only WAV audio goes to the endpoint."
+        )?;
     }
     writeln!(
         ui.output,
@@ -282,7 +311,13 @@ fn configure_checked<W: Write>(
     let yes_no = |enabled| if enabled { "yes" } else { "no" };
     writeln!(ui.output, "Timelines: {timeline}")?;
     writeln!(ui.output, "Timestamps: {}", yes_no(timestamps))?;
-    writeln!(ui.output, "Split oversized files: {}", yes_no(chunk_long))?;
+    if has_audio_files {
+        writeln!(
+            ui.output,
+            "Split oversized audio files: {}",
+            yes_no(chunk_long)
+        )?;
+    }
     writeln!(
         ui.output,
         "API key configured: {}",
@@ -554,7 +589,7 @@ mod tests {
             let text = String::from_utf8(log).unwrap();
             assert!(text.contains(r"C:\Audio\--日本語.opus"));
             assert!(text.contains("http://localhost:1234/v1/audio/transcriptions"));
-            assert!(text.contains("Timelines: separate\nTimestamps: no\nSplit oversized files: no\nAPI key configured: no\n"));
+            assert!(text.contains("Timelines: separate\nTimestamps: no\nSplit oversized audio files: no\nAPI key configured: no\n"));
             assert!(!text.contains("share one recording timeline"));
         }
         let input = format!("{answers}y\n");
@@ -568,6 +603,23 @@ mod tests {
         );
         assert!(options.key_env.is_none());
         assert!(!options.same_session && !options.timestamps && !options.chunk_long);
+    }
+
+    #[test]
+    fn blank_endpoint_cancels_manual_setup_after_one_retry() {
+        let mut answers = &b"example.org/v1\n  \r\nhttp://localhost:1234/v1\n"[..];
+        let mut log = Vec::new();
+        let result = configure(vec![PathBuf::from("recording.mp4")], &mut answers, &mut log);
+
+        assert!(result.unwrap().is_none());
+        assert_eq!(answers, b"http://localhost:1234/v1\n");
+        let text = String::from_utf8(log).unwrap();
+        assert!(text.contains("No transcription config is loaded."));
+        assert!(text.contains("Load config"));
+        assert!(text.contains("Enter to cancel"));
+        assert_eq!(text.matches("API base URL").count(), 2);
+        assert_eq!(text.matches("Endpoint must use HTTP or HTTPS").count(), 1);
+        assert!(!text.contains("Model name"));
     }
 
     #[test]
@@ -591,7 +643,7 @@ mod tests {
         assert!(options.same_session && options.timestamps && options.chunk_long);
         assert!(options.review.is_none());
         let text = String::from_utf8(log).unwrap();
-        assert!(text.contains("Timelines: shared\nTimestamps: yes\nSplit oversized files: yes\nAPI key configured: yes\n"));
+        assert!(text.contains("Timelines: shared\nTimestamps: yes\nSplit oversized audio files: yes\nAPI key configured: yes\n"));
         for secret in [
             "bad-password",
             "bad-query",
@@ -650,6 +702,35 @@ mod tests {
         fs::remove_file(&config_path).unwrap();
         assert_eq!(load_config(&exe, None).unwrap(), None);
         fs::remove_dir(&root).unwrap();
+    }
+
+    #[test]
+    fn configured_video_batch_only_prompts_for_review_and_approval() {
+        let files = vec![PathBuf::from("sample.MP4")];
+        let config = TranscriptionConfig {
+            endpoint: "http://localhost:9091/api".into(),
+            model: "test-recognizer".into(),
+            ..Default::default()
+        };
+        for (answer, approved) in [("n\ny\n", true), ("n\nn\n", false)] {
+            let mut log = Vec::new();
+            let options = configure_checked(
+                files.clone(),
+                &mut answer.as_bytes(),
+                &mut log,
+                false,
+                false,
+                Some(config.clone()),
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(options.is_some(), approved);
+            assert!(options.is_none_or(|options| !options.chunk_long && options.files == files));
+            let preview = String::from_utf8(log).unwrap();
+            assert!(preview.contains("sample.MP4 (extract audio locally)"));
+            assert!(preview.contains("first audio stream"));
+            assert!(!preview.contains("FFmpeg"));
+        }
     }
 
     #[test]

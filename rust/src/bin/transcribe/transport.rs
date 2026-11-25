@@ -479,7 +479,21 @@ fn post_audio(
     if unsafe { WinHttpSendRequest(request.0, headers.as_ptr(), u32::MAX, null(), 0, total, 0) }
         == 0
     {
-        return Err(windows_error("Cannot begin transcription request", true));
+        let failure = std::io::Error::last_os_error();
+        if failure.raw_os_error() == Some(ERROR_WINHTTP_CANNOT_CONNECT as i32) {
+            // The connection failed before any multipart body could be sent.
+            return Err(error(
+                format!(
+                    "Cannot reach the transcription service at {} on port {}. Check the endpoint and make sure the service is running. (WinHTTP {ERROR_WINHTTP_CANNOT_CONNECT})",
+                    endpoint.host, endpoint.port
+                ),
+                false,
+            ));
+        }
+        return Err(error(
+            format!("Cannot begin transcription request: {failure}"),
+            true,
+        ));
     }
     write_all(&request, &prefix, deadline)?;
     let mut buffer = [0u8; BLOCK_SIZE];
@@ -546,6 +560,34 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn closed_port_reports_a_known_unsent_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let target = endpoint(&format!("http://{address}/v1"), false).unwrap();
+        let result = transcribe_wav(
+            &target,
+            "fixture",
+            None,
+            None,
+            b"bounded audio",
+            false,
+            None,
+            Instant::now() + std::time::Duration::from_secs(5),
+            &|| false,
+        )
+        .unwrap_err();
+        assert!(!result.may_have_been_processed, "{result}");
+        assert!(
+            result
+                .message
+                .contains(&format!("127.0.0.1 on port {}", address.port())),
+            "{result}"
+        );
+        assert!(result.message.contains("service is running"), "{result}");
+    }
 
     #[test]
     fn cancellation_after_journaling_sends_no_request() {

@@ -1,7 +1,8 @@
-//! Bounded, temporary WAV chunks for explicitly requested long-file jobs.
+//! Bounded, temporary WAV chunks for decoded video and long audio files.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,7 +68,8 @@ fn wav_header(data_bytes: u32) -> [u8; 44] {
     header
 }
 
-fn for_each_pcm(
+/// Write one bounded mono PCM16 WAV at a time and pass it to the callback.
+pub(super) fn for_each_pcm(
     mut pcm: impl Read,
     directory: &Path,
     limit_bytes: u64,
@@ -142,6 +144,7 @@ pub fn for_each_wav(
     }
     let mut decoder = Decoder(
         Command::new("ffmpeg")
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
             .args([
                 "-v",
                 "error",

@@ -1,5 +1,8 @@
 //! Native Windows controls and message dispatch for the recorder.
-use crate::{native_controller::Controller, native_layout};
+use crate::{
+    native_controller::{Controller, TRANSCRIPTION_SETUP_NEEDED},
+    native_layout,
+};
 use audio_capture::live_wire::{QUALIFIED_LIVE_GATE, QUALIFIED_LIVE_SPEAKERS};
 use audio_capture::transcription_config::{MAX_ENDPOINT_UNITS, MAX_FIELD_UNITS, MAX_PATH_UNITS};
 use std::{
@@ -117,6 +120,59 @@ pub const LIVE_STATUS_LABEL: i32 = 185;
 pub const LIVE_TIMESTAMPS: i32 = 186;
 pub const LOAD_LIVE_CONFIG: i32 = 187;
 pub const SAVE_LIVE_CONFIG: i32 = 188;
+pub const LOCAL_INPUT_LABEL: i32 = 190;
+pub const LOCAL_INPUT: i32 = 191;
+pub const LOCAL_INPUT_BROWSE: i32 = 192;
+pub const LOCAL_OUTPUT_LABEL: i32 = 193;
+pub const LOCAL_OUTPUT: i32 = 194;
+pub const LOCAL_OUTPUT_BROWSE: i32 = 195;
+pub const LOCAL_PREVIEW: i32 = 196;
+pub const LOCAL_APPROVE: i32 = 197;
+pub const LOCAL_CANCEL: i32 = 198;
+pub const LOCAL_STATUS: i32 = 199;
+pub const LOCAL_REVIEW: i32 = 200;
+pub const LOCAL_IMPORT: i32 = 201;
+pub const LOCAL_MODEL_LABEL: i32 = 202;
+pub const LOCAL_MODEL: i32 = 203;
+pub const LOCAL_MODEL_BROWSE: i32 = 204;
+pub const LOCAL_NEXT: i32 = 205;
+pub const LOCAL_STATUS_LABEL: i32 = 206;
+pub const LOCAL_REVIEW_LABEL: i32 = 207;
+pub const ENDPOINT_FILES: i32 = 208;
+pub const ENDPOINT_QUEUE: i32 = 209;
+pub const ENDPOINT_REPLY_LABEL: i32 = 210;
+pub const ENDPOINT_REPLY: i32 = 211;
+pub const ENDPOINT_SEND: i32 = 212;
+pub const ENDPOINT_CLOSE: i32 = 213;
+pub const LOCAL_PREVIOUS: i32 = 214;
+
+pub const LOCAL_PANEL: &[i32] = &[
+    LOCAL_INPUT_LABEL,
+    LOCAL_INPUT,
+    LOCAL_INPUT_BROWSE,
+    LOCAL_OUTPUT_LABEL,
+    LOCAL_OUTPUT,
+    LOCAL_OUTPUT_BROWSE,
+    LOCAL_PREVIEW,
+    LOCAL_APPROVE,
+    LOCAL_CANCEL,
+    LOCAL_STATUS_LABEL,
+    LOCAL_STATUS,
+    LOCAL_REVIEW_LABEL,
+    LOCAL_REVIEW,
+    LOCAL_PREVIOUS,
+    LOCAL_NEXT,
+    LOCAL_MODEL_LABEL,
+    LOCAL_MODEL,
+    LOCAL_MODEL_BROWSE,
+    LOCAL_IMPORT,
+    ENDPOINT_FILES,
+    ENDPOINT_QUEUE,
+    ENDPOINT_REPLY_LABEL,
+    ENDPOINT_REPLY,
+    ENDPOINT_SEND,
+    ENDPOINT_CLOSE,
+];
 pub const PROFILE_WIDTH: i32 = 310;
 
 const TRAY_MESSAGE: u32 = WM_APP + 14;
@@ -419,6 +475,27 @@ impl Window {
 
     unsafe fn command(&mut self, id: i32, notification: u16) {
         let focus = match (id, notification) {
+            (TRANSCRIBE_FILES | BATCH_MANAGE, CLICKED) => {
+                let open = id == BATCH_MANAGE || !self.view.visible(LOCAL_INPUT);
+                self.view.set_panel(LOCAL_PANEL, open);
+                self.controller
+                    .local_panel(&self.view, open, id == BATCH_MANAGE);
+                self.view.caption(
+                    TRANSCRIBE_FILES,
+                    if open {
+                        "Hide file transcription"
+                    } else {
+                        "Transcribe files…"
+                    },
+                );
+                Some(if open && id == BATCH_MANAGE {
+                    LOCAL_STATUS
+                } else if open {
+                    LOCAL_INPUT
+                } else {
+                    TRANSCRIBE_FILES
+                })
+            }
             (SELECT_PROGRAMS, CLICKED) => {
                 self.programs_open = !self.programs_open;
                 self.view.set_panel(PROGRAM_CONTROLS, self.programs_open);
@@ -1127,6 +1204,15 @@ mod tests {
             let len = unsafe { GetWindowTextW(view.get(id), text.as_mut_ptr(), text.len() as i32) };
             assert_eq!(String::from_utf16_lossy(&text[..len as usize]), expected);
         };
+        assert_text(
+            LIVE_STATUS,
+            "Open Transcription settings to load a config or enter an endpoint and model.",
+        );
+        app.command(&view, LIVE_MODEL, EN_KILLFOCUS as u16);
+        assert_text(
+            LIVE_STATUS,
+            "Loaded transcription config from transcription.json",
+        );
         for (id, expected) in [
             (LIVE_ENDPOINT, config.endpoint.as_str()),
             (LIVE_MODEL, config.model.as_str()),
@@ -1153,6 +1239,21 @@ mod tests {
         assert_text(LIVE_MODEL, &config.model);
         assert_eq!(fs::read(path).unwrap(), b"{\"version\":999}");
         assert!(app.close_ready());
+
+        app.command(&view, LIVE_MODEL, EN_CHANGE as u16);
+        assert_text(LIVE_STATUS, "Transcription settings configured.");
+        view.caption(LIVE_ENDPOINT, "invalid-url");
+        app.command(&view, LIVE_ENDPOINT, EN_CHANGE as u16);
+        assert_text(
+            LIVE_STATUS,
+            "Check Transcription settings. Endpoint must use HTTP or HTTPS",
+        );
+        view.caption(LIVE_ENDPOINT, "");
+        app.command(&view, LIVE_ENDPOINT, EN_CHANGE as u16);
+        assert_text(
+            LIVE_STATUS,
+            "Open Transcription settings to load a config or enter an endpoint and model.",
+        );
     }
 
     #[test]
@@ -1400,7 +1501,7 @@ fn create_view(hwnd: HWND, instance: HINSTANCE) -> Result<View, String> {
             button(STOP_BOTH, "Stop both"),
             button(TRANSCRIPTION_SETTINGS, "Transcription settings"),
             label(LIVE_STATUS_LABEL, "Transcription status"),
-            readout(LIVE_STATUS, "Ready"),
+            readout(LIVE_STATUS, TRANSCRIPTION_SETUP_NEEDED),
             button(LIVE_OPEN_TEXT, "Open transcript"),
             button(LIVE_OPEN_FOLDER, "Open folder"),
             button(LIVE_CANCEL_PENDING, "Cancel pending requests"),
@@ -1408,7 +1509,32 @@ fn create_view(hwnd: HWND, instance: HINSTANCE) -> Result<View, String> {
             readout(LIVE_PREVIEW, ""),
             label(BATCH_SECTION, "Completed files"),
             button(TRANSCRIBE_FILES, "Transcribe files…"),
-            button(BATCH_MANAGE, "Batch queue…"),
+            button(BATCH_MANAGE, "Current job"),
+            label(LOCAL_INPUT_LABEL, "MP4 &file"),
+            edit(LOCAL_INPUT),
+            button(LOCAL_INPUT_BROWSE, "Browse…"),
+            label(LOCAL_OUTPUT_LABEL, "Save transcripts in"),
+            edit(LOCAL_OUTPUT),
+            button(LOCAL_OUTPUT_BROWSE, "Browse…"),
+            button(LOCAL_PREVIEW, "Preview local job"),
+            button(LOCAL_APPROVE, "Start local transcript"),
+            button(LOCAL_CANCEL, "Cancel job"),
+            label(LOCAL_STATUS_LABEL, "Local job status"),
+            readout(LOCAL_STATUS, "Choose an MP4 file and an output folder."),
+            label(LOCAL_REVIEW_LABEL, "Timed transcript"),
+            readout(LOCAL_REVIEW, ""),
+            button(LOCAL_PREVIOUS, "Previous page"),
+            button(LOCAL_NEXT, "Next page"),
+            label(LOCAL_MODEL_LABEL, "Model pack folder"),
+            edit(LOCAL_MODEL),
+            button(LOCAL_MODEL_BROWSE, "Browse…"),
+            button(LOCAL_IMPORT, "Import base.en pack"),
+            button(ENDPOINT_FILES, "Use an endpoint…"),
+            button(ENDPOINT_QUEUE, "Endpoint queue…"),
+            label(ENDPOINT_REPLY_LABEL, "Endpoint reply"),
+            edit(ENDPOINT_REPLY),
+            button(ENDPOINT_SEND, "Send reply"),
+            button(ENDPOINT_CLOSE, "Close session"),
             label(RECORDING_SETTINGS_SECTION, "Recording settings"),
             label(PROFILE_LABEL, "&Recording profile"),
             combo(PROFILE),
@@ -1526,6 +1652,7 @@ fn create_view(hwnd: HWND, instance: HINSTANCE) -> Result<View, String> {
             view.controls.insert(item.id, h);
         }
         for panel in [
+            LOCAL_PANEL,
             PROGRAM_CONTROLS,
             RECENT_CONTROLS,
             RECORDING_CONTROLS,
@@ -1538,6 +1665,14 @@ fn create_view(hwnd: HWND, instance: HINSTANCE) -> Result<View, String> {
         view.set_visible(LIVE_PREVIEW_LABEL, false);
         for (id, limit, hint) in [
             (LIVE_ENDPOINT, MAX_ENDPOINT_UNITS, "https://example.com/v1"),
+            (LOCAL_INPUT, MAX_PATH_UNITS, "Choose a local MP4"),
+            (LOCAL_OUTPUT, MAX_PATH_UNITS, "Choose an existing folder"),
+            (
+                LOCAL_MODEL,
+                MAX_PATH_UNITS,
+                "Extract the base.en model pack and select its folder",
+            ),
+            (ENDPOINT_REPLY, MAX_PATH_UNITS, "Answer the question above"),
             (LIVE_MODEL, MAX_FIELD_UNITS, "Model from your endpoint"),
             (LIVE_KEY_ENV, MAX_FIELD_UNITS, "Optional"),
             (

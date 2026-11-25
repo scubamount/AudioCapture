@@ -1,11 +1,16 @@
 mod attribution;
 mod batch_queue;
 mod chunks;
+mod control;
 mod guided;
 mod jobs;
 mod live;
+mod local_asr;
+mod local_batch;
+mod model_pack;
 mod review;
 mod transport;
+mod video;
 
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
@@ -16,6 +21,11 @@ const HELP: &str =
        transcribe --guided -- FILE...
 
 Guided mode loads transcription.json beside the executable when present.
+Video files use native audio extraction and upload only WAV audio.
+
+Local transcription commands:
+  control GROUP ACTION --json [--input -]  Send a noninteractive JSON request
+  mcp                                   Serve local tools on redirected stdio
 
 Live and queued transcription commands:
   live                 Process a confirmed live audio pipe
@@ -33,7 +43,7 @@ Speaker and memory commands (use COMMAND --help for details):
 Options:
   --api-key-env NAME   Read the bearer token from this environment variable
   --language CODE      Request a language supported by the endpoint
-  --max-file-mib N     Maximum input size in MiB (default 25)
+  --max-file-mib N     Maximum size per upload in MiB (default 25)
   --allow-http         Permit HTTP for a remote endpoint
   --timestamps         Request verbose_json from the endpoint
   --provider-profile openai-diarized-v1
@@ -43,7 +53,7 @@ Options:
   --review PATH        Create an HTML review of the selected transcripts
   --same-session       Treat selected sources as one recording timeline
   --allow-duplicate-sources  Include a combined track and its separate tracks
-  --chunk-long         Convert oversized files to bounded WAV chunks using ffmpeg
+  --chunk-long         Split oversized audio files into WAV parts using FFmpeg
   --version            Show the installed worker version
   --help               Show this help
 ";
@@ -52,6 +62,25 @@ fn main() {
     let mut args = std::env::args_os().skip(1).peekable();
     if args.len() == 1 && args.peek().is_some_and(|arg| arg == "--version") {
         println!("transcribe {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.next_if(|arg| arg == "control").is_some() {
+        std::process::exit(control::cli(args));
+    }
+    if args.next_if(|arg| arg == "mcp").is_some() {
+        std::process::exit(control::serve_mcp(args));
+    }
+    if args.next_if(|arg| arg == "--local-job").is_some() {
+        let job = args.next();
+        let result = job
+            .as_deref()
+            .and_then(std::ffi::OsStr::to_str)
+            .filter(|_| args.next().is_none())
+            .ok_or_else(|| "Supply one local job ID.".to_owned())
+            .and_then(local_batch::run_job);
+        if result.is_err() {
+            std::process::exit(1);
+        }
         return;
     }
     let guided = args.next_if(|arg| arg == "--guided").is_some();

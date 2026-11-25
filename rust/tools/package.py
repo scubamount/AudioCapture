@@ -26,6 +26,23 @@ FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 BINARIES = ("audio-capture", "transcribe")
 SUPPORT_FILES = ("README.md", "config/transcription.example.json", "tools/diarize_local.py")
 
+# These published crates omit a license file. The sibling crates carry the
+# upstream text from the same source revision. Check the text before reuse.
+CANDLE_LICENSE = (
+    "candle-core", "0.11.1", "Apache-2.0",
+    "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "https://github.com/huggingface/candle/blob/59f8e903ca80a32ea7f8514b39748fc979e69e82/LICENSE-APACHE",
+)
+LICENSE_FALLBACKS = {
+    ("candle-nn", "0.11.1"): CANDLE_LICENSE,
+    ("candle-transformers", "0.11.1"): CANDLE_LICENSE,
+    ("pulp-wasm-simd-flag", "0.1.1"): (
+        "pulp", "0.22.3", "MIT",
+        "d64f878c89bd5f1e5ada7e4aad57690b122727cf5229b7b87ea1980c188da1d9",
+        "https://github.com/sarah-quinones/pulp/blob/5eb07fd7b68edf0a5e19f71737d315f72a510295/LICENSE",
+    ),
+}
+
 
 def cargo(*args):
     return subprocess.check_output(
@@ -135,6 +152,10 @@ def main():
     unmatched = selected - found - {(root_package["name"], root_package["version"])}
     if unmatched:
         raise RuntimeError(f"Missing Cargo metadata for: {sorted(unmatched)}")
+    package_dirs = {
+        (p["name"], p["version"]): pathlib.Path(p["manifest_path"]).parent
+        for p in packages
+    }
 
     entries = {}
     index = ["# Runtime dependency inventory", "",
@@ -166,10 +187,25 @@ def main():
             dest = f"licenses/{label}/{path.relative_to(directory).as_posix()}"
             entries[dest] = path.read_bytes()
             referenced.append(dest)
+        source = None
+        fallback = LICENSE_FALLBACKS.get((name, version))
+        if not referenced and fallback:
+            sibling, sibling_version, license_id, digest, source = fallback
+            sibling_dir = package_dirs.get((sibling, sibling_version))
+            license_path = sibling_dir / "LICENSE" if sibling_dir else None
+            if license_path and license_path.is_file():
+                license_text = license_path.read_bytes()
+                if hashlib.sha256(license_text).hexdigest() == digest:
+                    dest = f"licenses/{label}/LICENSE-{license_id}.txt"
+                    entries[dest] = license_text
+                    referenced.append(dest)
         if not referenced:
-            missing.append(f"{label}: no license text found")
+            reason = f"verified {license_id} text unavailable" if fallback else "no license text found"
+            missing.append(f"{label}: {reason}")
         index.append(f"- {label}: {package.get('license') or 'license not declared'}")
         index.extend(f"  - {path}" for path in referenced)
+        if referenced and source:
+            index.append(f"    From [{license_id}]({source})")
         if not package.get("license"):
             missing.append(f"{label}: no declared license expression")
 

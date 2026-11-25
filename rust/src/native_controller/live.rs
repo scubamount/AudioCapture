@@ -1,7 +1,7 @@
 //! Connect the live controls to the shared capture session and separate worker.
 use super::*;
 use audio_capture::live_wire::{QUALIFIED_LIVE_GATE, QUALIFIED_LIVE_SPEAKERS};
-use audio_capture::transcription_config::{FILENAME, TranscriptionConfig};
+use audio_capture::transcription_config::{FILENAME, TranscriptionConfig, validate_connection};
 use std::path::Path;
 
 fn config_from_controls(view: &View) -> TranscriptionConfig {
@@ -102,6 +102,21 @@ fn open_transcript(view: &View, path: &std::path::Path, folder: bool) -> Result<
 }
 
 impl Controller {
+    pub(super) fn transcription_connection_changed(&mut self, view: &View) {
+        let endpoint = text(view, LIVE_ENDPOINT);
+        let model = text(view, LIVE_MODEL);
+        let key_env = text(view, LIVE_KEY_ENV);
+        self.live_note = if endpoint.trim().is_empty() || model.trim().is_empty() {
+            TRANSCRIPTION_SETUP_NEEDED.into()
+        } else {
+            match validate_connection(endpoint.trim(), model.trim(), key_env.trim()) {
+                Ok(()) => "Transcription settings configured.".into(),
+                Err(error) => format!("Check Transcription settings. {error}"),
+            }
+        };
+        self.show_live(view);
+    }
+
     pub(crate) fn load_startup_transcription_config(&mut self, view: &View, exe: &Path) {
         match TranscriptionConfig::load_optional_next_to(exe) {
             Ok(Some(config)) => {

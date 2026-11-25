@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,6 +41,7 @@ class PackagingTests(unittest.TestCase):
         self.output = Path(self.temp.name) / "output.zip"
         self.built = []
         self.change_during_build = None
+        self.additional_packages = []
         self.patches = [
             patch.object(packager, "ROOT", self.root),
             patch.object(packager, "cargo", self.cargo),
@@ -58,10 +60,14 @@ class PackagingTests(unittest.TestCase):
                     {"id": "root-id", "name": "audio-capture", "version": "0.1.0"},
                     {"id": "dep-id", "name": "dep", "version": "1.0.0",
                      "manifest_path": str(self.dep / "Cargo.toml"), "license": "MIT"},
+                    *self.additional_packages,
                 ],
             })
         if command == "tree":
-            return "audio-capture v0.1.0\ndep v1.0.0\n"
+            return "audio-capture v0.1.0\ndep v1.0.0\n" + "".join(
+                f"{package['name']} v{package['version']}\n"
+                for package in self.additional_packages
+            )
         if command != "build":
             raise AssertionError(args)
         self.built.append(args)
@@ -132,6 +138,30 @@ class PackagingTests(unittest.TestCase):
             with zipfile.ZipFile(path) as archive:
                 with self.assertRaises(RuntimeError):
                     verify_payload(archive, self.root)
+
+    def test_fallback_notice_requires_the_verified_sibling_text(self):
+        bare = self.root / "bare-crate"
+        bare.mkdir()
+        self.additional_packages.append({
+            "id": "bare-id", "name": "bare", "version": "1.0.0",
+            "manifest_path": str(bare / "Cargo.toml"), "license": "MIT",
+        })
+        data = (self.dep / "LICENSE").read_bytes()
+        upstream = "https://example.invalid/bare/LICENSE"
+        fallback = {
+            ("bare", "1.0.0"): ("dep", "1.0.0", "MIT", hashlib.sha256(data).hexdigest(), upstream),
+        }
+        with patch.object(packager, "LICENSE_FALLBACKS", fallback):
+            self.run_main()
+            with zipfile.ZipFile(self.output) as archive:
+                verify_payload(archive, self.root)
+                self.assertEqual(archive.read("licenses/bare-1.0.0/LICENSE-MIT.txt"), data)
+                self.assertIn(upstream.encode(), archive.read("licenses/DEPENDENCIES.md"))
+            (self.dep / "LICENSE").write_bytes(b"modified")
+            second = self.root / "second.zip"
+            with self.assertRaisesRegex(RuntimeError, "verified MIT text unavailable"):
+                self.run_main(second)
+            self.assertFalse(second.exists())
 
     def test_rejects_source_change_during_build(self):
         self.change_during_build = self.root / "src/main.rs"
