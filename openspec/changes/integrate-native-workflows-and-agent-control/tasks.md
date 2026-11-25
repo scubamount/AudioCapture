@@ -1,6 +1,6 @@
 ## First implementation slice
 
-Version 2.2.0 adds offline English transcription for one completed MP4 per job. Local model import verifies the pinned weights, tokenizer, and configuration. The native window and agent adapters submit the same local job. The worker publishes plain text and timed JSON on the decoded audio clock.
+Version 2.2.1 adds offline English transcription for one completed MP4 per job. Local model import verifies the pinned weights, tokenizer, and configuration. The native window and agent adapters submit the same local job. The worker publishes plain text and timed JSON on the decoded audio clock.
 
 Use the [operator guide](../../../rust/README.md#transcribe-an-mp4-offline) for model setup and the [Windows acceptance harness](../../../rust/tools/test_local_mp4.py) to repeat the three-client check. The state store and Windows file locks coordinate completed-file work. The shared capture owner and named-pipe protocol remain open for later slices.
 

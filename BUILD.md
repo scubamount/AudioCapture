@@ -50,7 +50,7 @@ The speaker bridge uses a separate Python environment, FFmpeg, and model files. 
 
 The Windows job checks formatting, charts, package assembly, and the Rust test suite. It builds and verifies the app ZIP. On a new release tag, it also builds the optional model ZIP. [Windows Rust build workflow](.github/workflows/rust.yml)
 
-Push a new tag that matches the Cargo version, such as `v2.2.0`. Add release notes in `docs/releases/<tag>.md`. The publish job checks both ZIPs against `SHA256SUMS.txt` and confirms the tag points to the tested commit. Tags with a prerelease suffix publish as prereleases. [Releases](https://github.com/scubamount/AudioCapture/releases)
+Push a new tag that matches the Cargo version, such as `v2.2.1`. Add release notes in `docs/releases/<tag>.md`. The publish job checks both ZIPs against `SHA256SUMS.txt` and confirms the tag points to the tested commit. Tags with a prerelease suffix publish as prereleases. [Releases](https://github.com/scubamount/AudioCapture/releases)
 
 ## Verify
 

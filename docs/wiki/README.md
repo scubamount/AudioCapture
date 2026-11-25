@@ -13,7 +13,7 @@ Audio Capture runs on Windows 11 x64. `audio-capture.exe` owns the window and WA
 | Toolchain and portable ZIP | [Build guide](../../BUILD.md) |
 | Original Win32 recorder | [C++ operator guide](../legacy/README.md) and [C++ build guide](../legacy/BUILD.md) |
 
-## Feature scope in 2.2.0
+## Feature scope in 2.2.1
 
 | Workflow | Shipped behavior |
 | --- | --- |

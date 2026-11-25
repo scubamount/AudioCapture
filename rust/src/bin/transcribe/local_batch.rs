@@ -772,6 +772,8 @@ mod tests {
         let policy = Policy {
             input_roots: vec![scope.input.clone()],
             output_roots: vec![scope.output.clone()],
+            input_spellings: vec![],
+            output_spellings: vec![],
             operations: vec![TRANSCRIBE.into()],
             profiles: vec![PROFILE.into()],
             allow_headless_approval: true,
@@ -826,13 +828,19 @@ mod tests {
         let scope = fixture_scope(&root);
         let unrelated = root.join("other.mp4");
         fs::write(&unrelated, b"unrelated").unwrap();
+        let input = root.join("FIXTURE.MP4");
+        let output = root.join("OUT");
         let policy = Policy {
-            input_roots: vec![scope.input],
-            output_roots: vec![scope.output],
+            input_roots: vec![input.clone()],
+            output_roots: vec![output.clone()],
+            input_spellings: vec![unrelated.clone()],
+            output_spellings: vec![root.clone()],
             operations: vec![TRANSCRIBE.into()],
             profiles: vec![PROFILE.into()],
             allow_headless_approval: true,
-        };
+        }
+        .validate()
+        .unwrap();
         for path in [
             unrelated,
             root.join("missing.mp4"),
@@ -843,8 +851,12 @@ mod tests {
             assert_eq!(input.0, 3);
             assert_eq!((input.0, input.1), (output.0, output.1));
         }
-        assert!(policy.requested_input(&root.join("fixture.mp4")).is_ok());
-        assert!(policy.requested_output(&root.join("out")).is_ok());
+        assert!(policy.requested_input(&input).is_ok());
+        assert!(policy.requested_output(&output).is_ok());
+        assert!(policy.requested_input(&scope.input).is_ok());
+        assert!(policy.requested_output(&scope.output).is_ok());
+        assert!(policy.input(&scope.input).is_ok());
+        assert!(policy.output(&scope.output).is_ok());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

@@ -1,4 +1,4 @@
-# Audio Capture 2.2.0 for Windows
+# Audio Capture 2.2.1 for Windows
 
 Record selected program audio, system audio, and one microphone on Windows 11 x64. Transcribe finished English MP4s offline or use a compatible endpoint for live audio and other completed files.
 
@@ -12,13 +12,13 @@ Record selected program audio, system audio, and one microphone on Windows 11 x6
 
 ## Open the portable package
 
-1. Download the app ZIP from [Audio Capture 2.2.0](https://github.com/scubamount/AudioCapture/releases/tag/v2.2.0).
+1. Download the app ZIP from [Audio Capture 2.2.1](https://github.com/scubamount/AudioCapture/releases/tag/v2.2.1).
 2. Compare its SHA-256 against the row for the app ZIP in `SHA256SUMS.txt`.
 3. Extract the ZIP to a folder you can write to.
 4. Keep `audio-capture.exe` and `transcribe.exe` in the same folder.
 5. Run `audio-capture.exe`.
 
-The ZIP includes this guide, `config/transcription.example.json`, and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for recording and video import. [Recorder overview](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/recorder-overview.png)
+The ZIP includes this guide, `config/transcription.example.json`, and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for recording and video import. [Recorder overview](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/images/recorder-overview.png)
 
 ## Record a Discord conversation
 
@@ -59,7 +59,7 @@ Open **Manage recent** and select **Auto-select recent** if you usually capture 
 
 ## Choose a recording profile
 
-Open **Recording settings** to select a preset or adjust its format, channels, bitrate, and sample rate. Available controls depend on the selected format. [Recording settings screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/recording-profiles.png)
+Open **Recording settings** to select a preset or adjust its format, channels, bitrate, and sample rate. Available controls depend on the selected format. [Recording settings screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/images/recording-profiles.png)
 
 On first launch without saved or imported settings, Audio Capture starts with **Speech (Opus 32 kbps mono)**. It restores saved settings from `%LOCALAPPDATA%\AudioCaptureRust` when available. It can also read supported preferences and named presets from the original C++ recorder.
 
@@ -80,7 +80,7 @@ For other WAV settings, choose 44100 Hz or 48000 Hz. **Auto** uses 48000 Hz. FLA
 
 ## Transcribe during a call
 
-Live transcription uses a compatible endpoint. Recording and live text have separate start and stop controls. [Live workflow and screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/live-transcription.md)
+Live transcription uses a compatible endpoint. Recording and live text have separate start and stop controls. [Live workflow and screenshot](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/live-transcription.md)
 
 1. Select the program and microphone for the transcript.
 2. Choose your recording **Output folder** if you also want to save audio.
@@ -146,7 +146,7 @@ Recovery publishes available committed words and reports missing coverage. To re
 
 Each local job transcribes the first embedded audio track of one completed MP4. Windows Media Foundation decodes audio. Candle runs Whisper `base.en` on the CPU. Install the English model once. The worker verifies the pack before inference.
 
-1. Download and extract the [Whisper base.en model ZIP](https://github.com/scubamount/AudioCapture/releases/download/v2.2.0/AudioCapture-Whisper-base.en-model.zip).
+1. Download and extract the [Whisper base.en model ZIP](https://github.com/scubamount/AudioCapture/releases/download/v2.2.1/AudioCapture-Whisper-base.en-model.zip).
 2. Open **Transcribe files…** in the recorder.
 3. Set **Model pack folder** to the folder containing `config.json`, `tokenizer.json`, and `model.safetensors`.
 4. Select **Import base.en pack**.
@@ -157,7 +157,7 @@ Each local job transcribes the first embedded audio track of one completed MP4. 
 9. Select **Start local transcript**.
 10. Read the segments under **Timed transcript** when the job finishes.
 
-Use **Cancel job** to stop at a processing checkpoint. Use **Current job** to return to the job panel. The output folder contains one job directory with `transcript.txt` and `transcript.json`. [Model setup](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/local-mp4.png) · [Timed review](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/images/local-mp4-review.png)
+Use **Cancel job** to stop at a processing checkpoint. Use **Current job** to return to the job panel. The output folder contains one job directory with `transcript.txt` and `transcript.json`. [Model setup](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/images/local-mp4.png) · [Timed review](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/images/local-mp4-review.png)
 
 Audio stays on this computer. The worker decodes 16 kHz mono audio in windows of up to 30 seconds. It carries unfinished audio into the next window when Whisper supplies a suitable segment boundary. Segment times start at the first decoded sample. A delayed audio track can have a different clock in a video player.
 
@@ -365,7 +365,7 @@ Repeat `--session` in the attribution command to process more sessions. Use `--j
 
 Diarization can use speaker data from a supported recognition result. For a result without speaker labels, an optional local adapter can identify speech intervals. The worker retains untimed text and leaves uncertain speaker assignments open for review.
 
-The portable ZIP contains `tools/diarize_local.py`. Install its Python runtime, models, and FFmpeg separately. Use an adapter only in a manifest you trust. [Speaker setup and examples](https://github.com/scubamount/AudioCapture/blob/v2.2.0/docs/speaker-workflow.md)
+The portable ZIP contains `tools/diarize_local.py`. Install its Python runtime, models, and FFmpeg separately. Use an adapter only in a manifest you trust. [Speaker setup and examples](https://github.com/scubamount/AudioCapture/blob/v2.2.1/docs/speaker-workflow.md)
 
 Optional automatic naming uses English introductions and supported question-and-answer exchanges. Separate tracks or provider-labeled turns can support an inferred name. For a single mixed track grouped only by the local adapter, names stay as suggestions until you review the speaker assignments or confirm an identity.
 

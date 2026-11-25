@@ -6,7 +6,7 @@ Record audio from selected Windows apps, the default playback device, or a micro
 
 ## Download for Windows 11 x64
 
-**[Download Audio Capture 2.2.0](https://github.com/scubamount/AudioCapture/releases/download/v2.2.0/AudioCapture-Rust-Windows-x64.zip)** · [Optional Whisper base.en model](https://github.com/scubamount/AudioCapture/releases/download/v2.2.0/AudioCapture-Whisper-base.en-model.zip) · [SHA-256 checksums](https://github.com/scubamount/AudioCapture/releases/download/v2.2.0/SHA256SUMS.txt) · [Release notes](https://github.com/scubamount/AudioCapture/releases/tag/v2.2.0)
+**[Download Audio Capture 2.2.1](https://github.com/scubamount/AudioCapture/releases/download/v2.2.1/AudioCapture-Rust-Windows-x64.zip)** · [Optional Whisper base.en model](https://github.com/scubamount/AudioCapture/releases/download/v2.2.1/AudioCapture-Whisper-base.en-model.zip) · [SHA-256 checksums](https://github.com/scubamount/AudioCapture/releases/download/v2.2.1/SHA256SUMS.txt) · [Release notes](https://github.com/scubamount/AudioCapture/releases/tag/v2.2.1)
 
 1. Extract the app ZIP to a writable folder.
 2. Keep `audio-capture.exe` and `transcribe.exe` together.

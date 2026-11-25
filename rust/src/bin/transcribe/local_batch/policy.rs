@@ -15,6 +15,10 @@ const OPERATIONS: &[&str] = &[TRANSCRIBE, STATUS, CANCEL, FETCH, IMPORT];
 pub(super) struct Policy {
     pub input_roots: Vec<PathBuf>,
     pub output_roots: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_spellings: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_spellings: Vec<PathBuf>,
     pub operations: Vec<String>,
     pub profiles: Vec<String>,
     pub allow_headless_approval: bool,
@@ -45,14 +49,30 @@ impl Policy {
         if self.operations.iter().any(|s| s == TRANSCRIBE) && self.output_roots.is_empty() {
             return Err(invalid("Select an existing transcript output directory."));
         }
+        // Windows can return a different spelling from an open handle, such as the
+        // long form of a short path. Keep the approved spelling for preflight only.
+        self.input_spellings.clear();
+        self.output_spellings.clear();
         for path in &mut self.input_roots {
-            *path = storage::local_path(path)
+            let spelling = storage::lexical_path(path)
+                .ok_or_else(|| invalid("Choose a fully qualified local input root."))?;
+            let resolved = storage::local_path(path)
                 .map_err(|_| invalid("Choose a readable, existing local input root."))?;
+            if spelling != resolved {
+                self.input_spellings.push(spelling);
+            }
+            *path = resolved;
         }
         for path in &mut self.output_roots {
-            *path = storage::hold_dir(path)
+            let spelling = storage::lexical_path(path)
+                .ok_or_else(|| invalid("Choose a fully qualified local output directory."))?;
+            let resolved = storage::hold_dir(path)
                 .map_err(|_| invalid("Choose an existing local output directory."))?
                 .1;
+            if spelling != resolved {
+                self.output_spellings.push(spelling);
+            }
+            *path = resolved;
         }
         Ok(self)
     }
@@ -69,24 +89,27 @@ impl Policy {
     // distinguish a missing file from a readable file. Recheck by handle after opening.
     pub fn requested_input(&self, path: &Path) -> Result<()> {
         let path = storage::lexical_path(path).ok_or_else(Failure::denied)?;
-        self.input(&path)
+        Self::allowed_path(&path, self.input_roots.iter().chain(&self.input_spellings))
     }
 
     pub fn requested_output(&self, path: &Path) -> Result<()> {
         let path = storage::lexical_path(path).ok_or_else(Failure::denied)?;
-        self.output(&path)
+        Self::allowed_path(
+            &path,
+            self.output_roots.iter().chain(&self.output_spellings),
+        )
     }
 
     pub fn input(&self, path: &Path) -> Result<()> {
-        self.allowed_path(path, &self.input_roots)
+        Self::allowed_path(path, self.input_roots.iter())
     }
 
     pub fn output(&self, path: &Path) -> Result<()> {
-        self.allowed_path(path, &self.output_roots)
+        Self::allowed_path(path, self.output_roots.iter())
     }
 
-    fn allowed_path(&self, path: &Path, roots: &[PathBuf]) -> Result<()> {
-        if roots.iter().any(|root| storage::is_within(path, root)) {
+    fn allowed_path<'a>(path: &Path, mut roots: impl Iterator<Item = &'a PathBuf>) -> Result<()> {
+        if roots.any(|root| storage::is_within(path, root)) {
             Ok(())
         } else {
             Err(Failure::denied())

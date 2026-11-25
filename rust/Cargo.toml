@@ -1,6 +1,6 @@
 [package]
 name = "audio-capture"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2024"
 default-run = "audio-capture"
 publish = false
