@@ -1,7 +1,15 @@
-use crate::{jobs, transport};
+use crate::{
+    attribution::{
+        adapter::AdapterConfig,
+        model::{Manifest, SourceInput, new_id},
+    },
+    jobs, transport,
+};
+use serde_json::Value;
 use std::ffi::OsString;
+use std::fs;
 use std::io::{self, BufRead, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -15,6 +23,9 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
             if let Some(path) = review {
                 println!("Open the local review: {}", path.display());
             }
+            println!(
+                "For speaker attribution, run transcribe.exe prepare-session --session session.json"
+            );
             Ok(())
         }
         Ok(None) => {
@@ -186,6 +197,202 @@ fn configure(
     }))
 }
 
+pub fn prepare_session(
+    path: &Path,
+    files: Vec<PathBuf>,
+    adapter: Option<AdapterConfig>,
+    automatic_names: bool,
+    naming_context: Value,
+) -> Result<(), String> {
+    if path.exists() {
+        return Err(format!(
+            "Session manifest already exists: {}",
+            path.display()
+        ));
+    }
+    let configured = configure_session(files, &mut io::stdin().lock(), &mut io::stdout().lock());
+    let mut manifest = match configured {
+        Ok(Some(manifest)) => manifest,
+        Ok(None) => {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    manifest.adapter = adapter;
+    manifest.automatic_names = automatic_names;
+    manifest.naming_context = naming_context;
+    let contents = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
+    let path = std::path::absolute(path).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
+    jobs::stage_and_publish_new(&path, &contents)
+        .map_err(|e| format!("Cannot publish session manifest {}: {e}", path.display()))?;
+    println!("Session manifest saved at {}", path.display());
+    Ok(())
+}
+
+fn selected_local_file(path: PathBuf, valid: fn(&Path) -> bool) -> io::Result<PathBuf> {
+    let path = std::path::absolute(path)?;
+    if !valid(&path) || !fs::metadata(&path)?.is_file() {
+        return Err(io::Error::other(format!(
+            "Unsupported file: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
+fn recognition_artifact(path: &Path) -> bool {
+    path.extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json") || ext.eq_ignore_ascii_case("txt"))
+}
+
+fn configure_session(
+    mut files: Vec<PathBuf>,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> io::Result<Option<Manifest>> {
+    let mut ui = Prompts { input, output };
+    writeln!(
+        ui.output,
+        "Create a session for completed recordings and local transcripts."
+    )?;
+    if files.is_empty() {
+        loop {
+            let answer = ui.ask("Audio path (blank when done):")?;
+            if answer.is_empty() {
+                break;
+            }
+            files.push(answer.into());
+        }
+        if files.is_empty() {
+            return Ok(None);
+        }
+    }
+    let mut sources = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for file in files {
+        let audio = selected_local_file(file, jobs::is_media)?;
+        if !seen.insert(audio.clone()) {
+            return Err(io::Error::other(format!(
+                "Audio was selected twice: {}",
+                audio.display()
+            )));
+        }
+        writeln!(ui.output, "Audio file {}", audio.display())?;
+        let artifact = loop {
+            let answer = ui.ask("Local recognition artifact (.json or .txt):")?;
+            match selected_local_file(answer.into(), recognition_artifact) {
+                Ok(path) => break path,
+                Err(error) => writeln!(ui.output, "{error}")?,
+            }
+        };
+        let role = loop {
+            let role = ui
+                .ask("Source role [program/mic/system/mix/other] (default other):")?
+                .to_ascii_lowercase();
+            match role.as_str() {
+                "" => break String::from("other"),
+                "program" | "mic" | "system" | "mix" | "other" => break role,
+                _ => writeln!(ui.output, "Enter program, mic, system, mix, or other.")?,
+            }
+        };
+        sources.push(SourceInput {
+            source_id: new_id("source").map_err(io::Error::other)?,
+            role,
+            audio,
+            artifact,
+            ..Default::default()
+        });
+    }
+
+    let shared_clock = sources.len() == 1
+        || ui.confirm(
+            "Do the source files share the same recording start and timeline?",
+            false,
+        )?;
+    let mixes = sources.iter().filter(|source| source.role == "mix").count();
+    let overlapping_roles = sources.iter().any(|source| source.role == "system")
+        && sources.iter().any(|source| source.role == "program");
+    if (mixes > 0 && sources.len() > 1) || (shared_clock && overlapping_roles) {
+        writeln!(
+            ui.output,
+            "Choose one representation for any audio that occurs in multiple files."
+        )?;
+        loop {
+            for source in &mut sources {
+                source.selected = Some(ui.confirm(
+                    &format!("Include {} ({})?", source.audio.display(), source.role),
+                    false,
+                )?);
+            }
+            let mut selected = sources
+                .iter()
+                .filter(|source| source.selected == Some(true))
+                .peekable();
+            if selected.peek().is_none() {
+                writeln!(ui.output, "Select at least one source.")?;
+                continue;
+            }
+            let roles = selected
+                .map(|source| source.role.as_str())
+                .collect::<Vec<_>>();
+            if (roles.contains(&"mix") && roles.len() > 1)
+                || (shared_clock && roles.contains(&"system") && roles.contains(&"program"))
+            {
+                writeln!(
+                    ui.output,
+                    "Choose a mix by itself. For a shared timeline, select either system audio or program audio."
+                )?;
+                continue;
+            }
+            break;
+        }
+    }
+    let representation = if sources.iter().any(|source| source.selected.is_some()) {
+        "explicit"
+    } else {
+        "auto"
+    };
+    writeln!(
+        ui.output,
+        "Timeline: {}",
+        if shared_clock { "shared" } else { "separate" }
+    )?;
+    writeln!(ui.output, "Sources for this session:")?;
+    for source in &sources {
+        let included = if source.selected == Some(false) {
+            "alternate"
+        } else {
+            "selected"
+        };
+        writeln!(
+            ui.output,
+            "  {included} {} ({})",
+            source.audio.display(),
+            source.role
+        )?;
+    }
+    if !ui.confirm("Save this local session manifest?", false)? {
+        return Ok(None);
+    }
+    Ok(Some(Manifest {
+        session_id: new_id("session").map_err(io::Error::other)?,
+        shared_clock,
+        representation: representation.into(),
+        sources,
+        ..Default::default()
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +481,54 @@ mod tests {
         assert!(read_answer(&mut input).is_err());
         assert!(input.len() > 800_000);
         assert!(read_answer(&mut &b"yes\x00\n"[..]).is_err());
+    }
+
+    #[test]
+    fn session_guidance_rejects_duplicate_coverage_and_requires_approval() {
+        let directory = std::env::temp_dir().join(new_id("prepare_session_test").unwrap());
+        fs::create_dir(&directory).unwrap();
+        let mix = directory.join("mix.opus");
+        let program = directory.join("program.opus");
+        let mix_text = directory.join("mix.txt");
+        let program_text = directory.join("program.txt");
+        for path in [&mix, &program, &mix_text, &program_text] {
+            fs::write(path, []).unwrap();
+        }
+        let fixture = [
+            mix_text.to_str().unwrap(),
+            "mix",
+            program_text.to_str().unwrap(),
+            "program",
+            "y",
+            "y",
+            "y",
+            "n",
+            "y",
+        ]
+        .join("\n");
+        let mut output = Vec::new();
+        let selected = vec![mix.clone(), program.clone()];
+        let approved = format!("{fixture}\ny\n");
+        let result = configure_session(selected.clone(), &mut approved.as_bytes(), &mut output)
+            .unwrap()
+            .unwrap();
+        assert!(result.shared_clock);
+        assert_eq!(result.representation, "explicit");
+        assert_eq!(result.sources[0].selected, Some(false));
+        assert_eq!(result.sources[1].selected, Some(true));
+        assert!(
+            String::from_utf8(output)
+                .unwrap()
+                .contains("Choose a mix by itself")
+        );
+
+        let rejected = format!("{fixture}\nn\n");
+        let result =
+            configure_session(selected, &mut rejected.as_bytes(), &mut Vec::new()).unwrap();
+        assert!(result.is_none());
+        for path in [mix, program, mix_text, program_text] {
+            fs::remove_file(path).unwrap();
+        }
+        fs::remove_dir(directory).unwrap();
     }
 }

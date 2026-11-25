@@ -24,7 +24,9 @@ cargo fetch --locked
 python .\tools\package.py --output .\AudioCapture-Rust-Windows-x64.zip
 ```
 
-The packager builds both release executables with `--offline --locked`. It includes the operator guide, dependency inventory, and available notices. Choose a new output path if the ZIP already exists.
+The packager builds both release executables with `--offline --locked`. It includes the operator guide, dependency notices, and the optional diarization bridge. Choose a new output path if the ZIP already exists.
+
+The speaker bridge uses a separate Python environment, FFmpeg, and model files. Install them only when you want to run local diarization. [Speaker workflow](docs/speaker-workflow.md#optional-local-adapter)
 
 ## Verify
 

@@ -15,7 +15,7 @@ Scripted mode starts eligible work on invocation. It takes options from argument
 | Concern | Code and behavior |
 | --- | --- |
 | Endpoint | [`transport::endpoint`](../../rust/src/bin/transcribe/transport.rs) keeps the base URL's path prefix and appends `/audio/transcriptions`. HTTPS and loopback HTTP work by default. Only scripted mode can enable remote HTTP with `--allow-http`. |
-| Request and response | [`transport::transcribe`](../../rust/src/bin/transcribe/transport.rs) uses WinHTTP for streamed multipart requests. It rejects redirects and caps response bodies at 16 MiB. [`parse_response`](../../rust/src/bin/transcribe/jobs.rs) accepts UTF-8 text or JSON with a string `text` field. The `--timestamps` option requests `verbose_json`. |
+| Request and response | [`transport::transcribe`](../../rust/src/bin/transcribe/transport.rs) uses WinHTTP for streamed multipart requests. It rejects redirects and caps response bodies at 16 MiB. [`parse_response`](../../rust/src/bin/transcribe/jobs.rs) accepts UTF-8 text or JSON with a string `text` field. Use `--timestamps` for `verbose_json` or select the known diarized provider profile. |
 | Batch and size | [`jobs::run` and `process_file`](../../rust/src/bin/transcribe/jobs.rs) process files in order. The default file limit is 25 MiB. With chunking off, metadata rejects oversized files before hashing or probing. Other files in the batch can continue. |
 | Chunking | [`chunks::for_each_wav`](../../rust/src/bin/transcribe/chunks.rs) uses FFmpeg only for oversized inputs when the user enables chunking. It writes one bounded 16 kHz mono PCM WAV at a time. Chunk offsets count frames on the source timeline. |
 | Cache | [`process_part`](../../rust/src/bin/transcribe/jobs.rs) keeps locked job state and buffered response reads under `.audio-capture-jobs` in the output folder. Matching completed work reuses local output. An interrupted local write can reuse a saved response. |
@@ -30,6 +30,16 @@ Resume with the same output folder, source paths and bytes, destination, model, 
 - The local HTML uses the original media paths for playback. It supports search, timed replay, and export of corrections to separate files. Use a new output path for each review. [Review generator](../../rust/src/bin/transcribe/review.rs) · [Review page](../../rust/src/bin/transcribe/review.html)
 - The portable ZIP includes the recorder and worker. The endpoint supplies recognition. Install FFmpeg for oversized-file conversion and ffprobe for whole-file timing validation. [Build guide](../../BUILD.md) · [Portable delivery specification](../../openspec/changes/integrate-recorder-and-transcription/specs/manual-transcription/spec.md)
 
-## Planned speaker attribution and export
+## Speaker attribution and memory
 
-Current review labels identify source tracks. A proposed change covers offline speaker diarization, reversible naming with evidence, and versioned local JSONL export for agent memory. [Proposal](../../openspec/changes/add-speaker-attribution-and-memory-export/proposal.md) · [Design](../../openspec/changes/add-speaker-attribution-and-memory-export/design.md)
+Speaker commands use completed audio and recognition artifacts. They run in the companion worker on request. The native recorder launches no speaker model. Use the operator procedure to prepare, attribute, review, and export a session. [Speaker workflow](../speaker-workflow.md)
+
+| Concern | Implementation |
+| --- | --- |
+| Command routing | The local subcommands have separate arguments from the existing recognition commands. Use `prepare-session` to create a manifest and `attribute` to process one or more manifests. [Command parser](../../rust/src/bin/transcribe/attribution/cli.rs) |
+| Timeline and text | The worker aligns recognized text and speaker activity on the recorded timeline. It preserves untimed or unresolved text and retains activity at overlapping times. [Inputs](../../rust/src/bin/transcribe/attribution/inputs.rs) · [Session model](../../rust/src/bin/transcribe/attribution/model.rs) |
+| Local backend | An explicit adapter reads selected audio through a bounded subprocess protocol. The provided Python bridge runs sherpa-onnx models installed by the operator. [Rust boundary](../../rust/src/bin/transcribe/attribution/adapter.rs) · [Python bridge](../../rust/tools/diarize_local.py) |
+| Context and changes | The naming rules use local evidence. Review patches target a revision and preserve earlier decisions. Speaker IDs and reviewed person IDs serve different purposes. [Naming](../../rust/src/bin/transcribe/attribution/naming.rs) · [Review](../../rust/src/bin/transcribe/attribution/decisions.rs) · [Revision store](../../rust/src/bin/transcribe/attribution/store.rs) |
+| Memory | Preview an explicit scope. Export approved data as versioned JSONL batches. The reference importer checks the manifest and replays corrections or withdrawals. [Export](../../rust/src/bin/transcribe/attribution/export.rs) · [Import](../../rust/src/bin/transcribe/attribution/importer.rs) |
+
+The [OpenSpec design](../../openspec/changes/add-speaker-attribution-and-memory-export/design.md) explains the protocol, evidence rules, revisions, and acceptance criteria. See the [verification notes](verification.md) for runnable checks and evidence limits.

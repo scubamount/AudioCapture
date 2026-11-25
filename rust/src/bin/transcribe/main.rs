@@ -1,3 +1,4 @@
+mod attribution;
 mod chunks;
 mod guided;
 mod jobs;
@@ -14,12 +15,22 @@ const HELP: &str =
 
 Transcribe completed files explicitly, one at a time.
 
+Speaker and memory commands (use COMMAND --help for details):
+  prepare-session      Create a local session manifest with guided prompts
+  attribute            Analyze selected finished recordings and transcripts
+  review-session       Inspect a session or apply a review decision
+  export-memory        Preview or approve a local memory export
+  import-memory        Apply an exported batch to a local reference importer
+
 Options:
   --api-key-env NAME   Read the bearer token from this environment variable
   --language CODE      Request a language supported by the endpoint
   --max-file-mib N     Maximum input size in MiB (default 25)
   --allow-http         Permit HTTP for a remote endpoint
   --timestamps         Request verbose_json from the endpoint
+  --provider-profile openai-diarized-v1
+                       Request diarized_json from a capable endpoint and model
+                       Use this option without --timestamps
   --retry-unknown      Explicitly retry requests with unknown completion
   --review PATH        Create an HTML review of the selected transcripts
   --same-session       Treat selected sources as one recording timeline
@@ -31,7 +42,18 @@ Options:
 fn main() {
     let mut args = std::env::args_os().skip(1).peekable();
     let guided = args.next_if(|arg| arg == "--guided").is_some();
-    let result = if guided { guided::run(args) } else { run(args) };
+    let result = if guided {
+        guided::run(args)
+    } else if let Some(command) = args
+        .peek()
+        .and_then(|arg| arg.to_str())
+        .and_then(attribution::cli::Command::from_name)
+    {
+        args.next();
+        attribution::cli::run(command, args)
+    } else {
+        run(args)
+    };
     if let Err(error) = &result {
         eprintln!("{error}");
     }
@@ -75,6 +97,14 @@ fn run(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
                 Some("--model") => options.model = value.to_string_lossy().into_owned(),
                 Some("--output-dir") => options.output_dir = PathBuf::from(value),
                 Some("--review") => options.review = Some(PathBuf::from(value)),
+                Some("--provider-profile") => {
+                    options.provider_profile = Some(
+                        value
+                            .to_str()
+                            .ok_or("The provider profile must be valid Unicode")?
+                            .parse::<transport::ProviderProfile>()?,
+                    );
+                }
                 Some("--api-key-env") => {
                     options.key_env = Some(value.to_string_lossy().into_owned())
                 }

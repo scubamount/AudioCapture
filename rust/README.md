@@ -118,6 +118,7 @@ Append paths after `--` to queue multiple files. This example requests timed seg
 | `--language CODE` | Requests a language code supported by the service. |
 | `--max-file-mib N` | Sets the per-file limit in MiB. The default is 25. Valid values are 1 to 1024. |
 | `--timestamps` | Requests `verbose_json`. The service must support this response format for timed segments. |
+| `--provider-profile openai-diarized-v1` | Requests speaker-labeled segments from an endpoint and model that support this profile. Use it without `--timestamps`. |
 | `--review PATH` | Creates an HTML review at a new file path. |
 | `--same-session` | Groups the selected sources on one shared recording timeline. |
 | `--chunk-long` | Uses FFmpeg to split audio that exceeds the configured limit. |
@@ -147,6 +148,34 @@ To resume a batch, use the same output directory, source paths, audio, endpoint,
 For a fully cached run, leave the key prompt blank or omit `--api-key-env`. If you specify a key variable, it must be set even if all jobs are cached.
 
 A job with an unknown result may have completed on the server. Check the service before you use `--retry-unknown`. Keep the same output directory to retain completed work.
+
+## Review speakers and export memory
+
+Use completed audio and its transcript. Detected speakers receive labels within the session. Inferred names cite transcript evidence. A review can confirm a person or correct the text.
+
+For Discord and microphone recordings, use **Separate files** when possible. A test used the Pyannote and TitaNet models on 24 synthetic calls with reference text and times. Separate tracks had 7.66% diarization error and recovered 91.82% of isolated turns. Mixing those calls gave 21.38% error and 79.09% recall, missing both test targets.
+
+1. Run `.\transcribe.exe prepare-session --session .\session.json` to choose inputs and create a session manifest.
+2. Run `.\transcribe.exe attribute --session .\session.json` to process those inputs.
+3. Run `.\transcribe.exe review-session --session .\session.json` to check speakers, text, and evidence.
+
+Repeat `--session` in the attribution command to process more sessions. Use `--json` with `review-session` to get the latest revision. Use `--apply .\edits.json` to submit a correction file.
+
+Diarization can use speaker data from a supported recognition result. For a result without speaker labels, an optional local adapter can identify speech intervals. The worker retains untimed text and leaves uncertain speaker assignments open for review.
+
+The portable ZIP contains `tools/diarize_local.py`. Install its selected Python runtime, models, and FFmpeg separately. Use an adapter only in a manifest you trust. See `docs/speaker-workflow.md` in the source repository for setup and JSON examples.
+
+Optional automatic naming uses English introductions and supported question-and-answer exchanges. Separate tracks or provider-labeled turns can support an inferred name. For a single mixed track grouped only by the local adapter, names stay as suggestions until you review the speaker assignments or confirm an identity.
+
+Create `scope.json` with the manifest path and revision you approve. This example selects all turns in revision 2 of one session.
+
+```json
+{"schema_major":1,"sessions":[{"manifest":"session.json","revision":2}],"include_provisional_names":false}
+```
+
+Run `.\transcribe.exe export-memory --scope .\scope.json --output .\memory` to preview it. Add `--approve` to write a local JSONL batch. The export contains approved text and speaker data. Audio and credentials stay local.
+
+Copy the batch manifest path from the export receipt. Run `.\transcribe.exe import-memory --batch PATH --output .\agent-memory` to apply it locally.
 
 ## Troubleshooting
 

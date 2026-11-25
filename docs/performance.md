@@ -1,8 +1,8 @@
 # Performance on Windows 11 x64
 
-The recorder uses native Windows controls and WASAPI. Recording does not start the transcription worker or load a speech model. Opening the guided workflow starts a separate process. FFmpeg is used only for explicitly requested long-file conversion. The worker can also use ffprobe to verify review timestamps.
+The recorder uses native Windows controls and WASAPI. Recording does not start the transcription worker or load a speech model. Opening the guided workflow starts a separate process. Long-file conversion and the optional local diarizer can use FFmpeg. The worker can use ffprobe to verify timestamps.
 
-The Windows ZIP is 1,344,067 bytes. It contains a 1,629,696-byte recorder and a 781,312-byte transcription worker. The guide and dependency notices account for the remaining archive entries. The six profiles added 2,231 bytes to the ZIP compared with the earlier integrated build.
+The speaker-enabled Windows ZIP is 2,035,192 bytes. It contains a 1,629,696-byte recorder, a 2,522,112-byte worker, and a 5,682-byte Python adapter, plus the guide and notices. Install the optional Python runtime and models separately. The previous speech-profile ZIP was 1,344,067 bytes and had the same recorder size.
 
 ## Idle window
 
@@ -48,6 +48,41 @@ We tested copying samples in larger groups before Opus encoding. Each configurat
 The final files and sampled checkpoints matched byte for byte. The recorder retains its existing input loop.
 
 ## Transcription
+
+### Speaker attribution
+
+The test used 24 three-voice calls with 602.29 seconds of synthetic audio. Each call had a mixed version and separate program and microphone tracks. Twelve or more calls contained overlapping speech. The cases rotate three Windows voices across ten scripts. The worker received reference recognition text and timing. Speech recognition errors were outside this test. The fixture generator and scorer are available in the [acceptance tool](../rust/tools/test_speaker_acceptance.py).
+
+The table compares two offline model configurations. Both used sherpa-onnx 2.0.3 and the same Pyannote 3.0 segmentation model. The targets were at most 20% diarization error and at least 90% recall on isolated reference turns.
+
+| Embedding model and clustering threshold | Source layout | Diarization error | Isolated turn recall | Error during overlap |
+| --- | --- | ---: | ---: | ---: |
+| NeMo TitaNet Small, 0.50 | Separate tracks | 7.66% | 91.82% | 0.00% |
+| NeMo TitaNet Small, 0.50 | Single mix | 21.38% | 79.09% | 45.15% |
+| WeSpeaker ResNet34-LM, 0.27 | Separate tracks | 7.26% | 92.73% | 0.00% |
+| WeSpeaker ResNet34-LM, 0.27 | Single mix | 23.60% | 81.82% | 67.05% |
+
+Both configurations met the targets on separate tracks. Both missed them on the mix. Much of the overlap in the separate recordings crossed the microphone and program tracks. These results do not establish accuracy for multiple simultaneous voices on one Discord track.
+
+The TitaNet adapter processed the mixed set in 50.77 seconds and the separate tracks in 74.11 seconds. Peak sampled process-tree working sets were 253.5 MiB and 237.7 MiB, respectively. The adapter exits after use. Ordinary recording does not incur that memory cost.
+
+One private local check used two 29.088-second recordings from the same call. The worker retained all 15 recognized words. Twelve had sufficient speaker evidence. Three remained unassigned. Both speakers stayed anonymous. Original audio and transcript text are excluded from the repository.
+
+#### Automatic names
+
+The same 24-call corpus tested explicit introductions and corroborated exchanges. The tests included 48 misleading utterance instances and four conflicting scenarios. The table lists names displayed automatically. A suggestion that awaited review counts as an abstention.
+
+| Speaker evidence | Introductions recognized | Contextual names recognized | Incorrect named turns / named turns |
+| --- | ---: | ---: | ---: |
+| Reference speaker labels | 22 / 23 | 21 / 21 | 0 / 130 |
+| Local TitaNet, separate tracks | 15 / 23 | 15 / 21 | 0 / 90 |
+| Local TitaNet, single mix | 0 / 23 | 0 / 21 | 0 / 0 |
+
+On the single mix, local acoustic results generated suggestions only. The zero count represents abstention. None of these runs automatically confirmed a cross-session identity. Naming rules were corrected against failed cases, so the final naming scores are regression results on fixed scripts.
+
+A further three-person dialogue exercised paraphrased responses and an introduction followed by another sentence. Provider-labeled turns supported two inferred names; removing approved context left one. Local mixed-audio results displayed suggestions and attributed six of twelve turns uniquely and correctly. This was a synthetic workflow check with supplied recognition text.
+
+### Batch transcription
 
 The worker checks the size limit from file metadata. It can reject oversized audio before reading its contents. Eligible files still use a content hash for reliable resume.
 

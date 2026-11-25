@@ -326,15 +326,18 @@ impl Drop for Writer {
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn destination(extension: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "audio-capture-test-{}-{stamp}.{extension}",
+            "audio-capture-test-{}-{stamp}-{sequence}.{extension}",
             std::process::id()
         ))
     }

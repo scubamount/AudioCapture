@@ -45,6 +45,8 @@ jobs:
           cargo test --locked --offline --release --bin transcribe guided
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --offline --release --bin transcribe jobs::tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --offline --release --bin transcribe attribution::
       - name: Check packaging
         run: python -B tools/test_package.py
       - name: Build the portable ZIP

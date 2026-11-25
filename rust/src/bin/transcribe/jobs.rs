@@ -22,6 +22,7 @@ pub struct Options {
     pub max_file_mib: u64,
     pub allow_http: bool,
     pub timestamps: bool,
+    pub provider_profile: Option<transport::ProviderProfile>,
     pub retry_unknown: bool,
     pub same_session: bool,
     pub allow_duplicate_sources: bool,
@@ -41,6 +42,7 @@ impl Default for Options {
             max_file_mib: 25,
             allow_http: false,
             timestamps: false,
+            provider_profile: None,
             retry_unknown: false,
             same_session: false,
             allow_duplicate_sources: false,
@@ -63,6 +65,8 @@ struct Job {
     model: String,
     language: Option<String>,
     timestamps: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_profile: Option<transport::ProviderProfile>,
     text: PathBuf,
     json: Option<PathBuf>,
     #[serde(default)]
@@ -84,9 +88,23 @@ struct Aggregate {
     json: PathBuf,
 }
 
+struct PartOutput {
+    track: review::ReviewTrack,
+    speaker_segments: Vec<SpeakerSegment>,
+}
+
+#[derive(Serialize)]
+struct SpeakerSegment {
+    start: Option<f64>,
+    end: Option<f64>,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speaker: Option<String>,
+}
+
 // Windows' built-in cryptographic provider avoids buffering entire recordings
 // and identifies jobs independently of input names and modification times.
-fn digest(mut input: impl Read) -> Result<String, String> {
+pub(super) fn digest(mut input: impl Read) -> Result<String, String> {
     let mut provider = 0usize;
     let mut hash = 0usize;
     unsafe {
@@ -157,7 +175,7 @@ fn save_state(path: &Path, job: &Job) -> Result<(), String> {
     fs::rename(temp, path).map_err(|e| format!("Cannot save job state: {e}"))
 }
 
-fn lock(path: &Path) -> Result<File, String> {
+pub(super) fn lock(path: &Path) -> Result<File, String> {
     // Exclusive Windows sharing releases the lock on process exit, even after a crash.
     OpenOptions::new()
         .write(true)
@@ -195,7 +213,7 @@ fn parse_response(
     Ok((text, Some(value)))
 }
 
-fn output_duration(path: &Path) -> Option<f64> {
+pub(super) fn output_duration(path: &Path) -> Option<f64> {
     // Duration is optional. Never assign timing based on an unavailable probe.
     let result = Command::new("ffprobe")
         .args([
@@ -292,7 +310,61 @@ fn review_segments(
     segments(raw, duration)
 }
 
-fn is_media(path: &Path) -> bool {
+fn speaker_segments(raw: Option<&serde_json::Value>, duration: f64) -> Vec<SpeakerSegment> {
+    let Some(items) = raw
+        .and_then(|value| value.get("segments"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            let text = item.get("text")?.as_str()?;
+            let times = item
+                .get("start")
+                .and_then(serde_json::Value::as_f64)
+                .zip(item.get("end").and_then(serde_json::Value::as_f64))
+                .filter(|&(start, end)| {
+                    start.is_finite()
+                        && end.is_finite()
+                        && start >= 0.0
+                        && end >= start
+                        && end <= duration
+                });
+            let speaker = times
+                .filter(|&(start, end)| start < end)
+                .and_then(|_| item.get("speaker")?.as_str())
+                .filter(|speaker| {
+                    !speaker.trim().is_empty()
+                        && speaker.len() <= 256
+                        && !speaker.chars().any(char::is_control)
+                })
+                .map(str::to_owned);
+            let (start, end) = times.unzip();
+            Some(SpeakerSegment {
+                start,
+                end,
+                text: text.to_owned(),
+                speaker,
+            })
+        })
+        .collect()
+}
+
+fn request_key<T: Serialize>(
+    legacy: &T,
+    profile: Option<transport::ProviderProfile>,
+) -> Result<String, String> {
+    let identity = match profile {
+        Some(profile) => serde_json::to_vec(&("provider-profile", profile, legacy)),
+        None => serde_json::to_vec(legacy),
+    }
+    .map_err(|error| error.to_string())?;
+    digest(identity.as_slice())
+}
+
+pub(super) fn is_media(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
@@ -378,7 +450,7 @@ fn publish_aggregate(
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-fn stage_and_publish_new(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+pub(super) fn stage_and_publish_new(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     stage_and_publish_with_sequence(path, contents, || {
         TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     })
@@ -464,6 +536,9 @@ fn recorder_session(path: &Path) -> Option<(&str, bool)> {
 }
 
 fn validate_batch(options: &Options) -> Result<(), String> {
+    if options.timestamps && options.provider_profile.is_some() {
+        return Err("Choose either --timestamps or --provider-profile".into());
+    }
     if options.review.as_ref().is_some_and(|path| path.exists()) {
         return Err("The requested review file already exists. Choose a new path.".into());
     }
@@ -570,10 +645,11 @@ fn process_file(
             endpoint,
             key,
             job_dir,
-        );
+        )
+        .map(|part| part.track);
     }
-    let aggregate_key = digest(
-        serde_json::to_vec(&(
+    let aggregate_key = request_key(
+        &(
             input.to_string_lossy().as_ref(),
             &source_sha256,
             &transport::canonical_key(endpoint),
@@ -581,9 +657,8 @@ fn process_file(
             &options.language,
             options.timestamps,
             limit,
-        ))
-        .map_err(|e| e.to_string())?
-        .as_slice(),
+        ),
+        options.provider_profile,
     )?;
     let aggregate_state = job_dir.join(format!("{aggregate_key}.aggregate.json"));
     let _aggregate_lock = lock(&job_dir.join(format!("{aggregate_key}.aggregate.lock")))?;
@@ -628,6 +703,13 @@ fn process_file(
                     .and_then(|v| v.get("source_sha256"))
                     .and_then(|v| v.as_str())
                     == Some(source_sha256.as_str())
+                    && manifest
+                        .as_ref()
+                        .and_then(|value| value.get("provider_profile"))
+                        .cloned()
+                        .map(serde_json::from_value::<transport::ProviderProfile>)
+                        .transpose()
+                        .is_ok_and(|profile| profile == options.provider_profile)
                     && text_matches
                 {
                     println!(
@@ -718,7 +800,8 @@ fn process_file(
     let mut timing = Vec::new();
     let mut untimed = Vec::new();
     let mut raw_parts = Vec::new();
-    for (offset, frames, part) in parts {
+    for (offset, frames, output) in parts {
+        let part = output.track;
         if !text.is_empty() && !part.text.is_empty() {
             text.push('\n');
         }
@@ -743,29 +826,39 @@ fn process_file(
                 text: segment.text,
             });
         }
-        raw_parts.push(serde_json::json!({
+        let mut raw_part = serde_json::json!({
             "offset_frames": offset, "frames": frames,
             "sample_rate": 16000, "text": part.text, "segments": segment_values
-        }));
+        });
+        if !output.speaker_segments.is_empty() {
+            raw_part["speaker_segments"] =
+                serde_json::to_value(output.speaker_segments).map_err(|e| e.to_string())?;
+        }
+        raw_parts.push(raw_part);
     }
-    let identity = serde_json::to_vec(&(
-        input.to_string_lossy().as_ref(),
-        &source_sha256,
-        &transport::canonical_key(endpoint),
-        &options.model,
-        &options.language,
-        options.timestamps,
-        limit,
-        &raw_parts,
-    ))
-    .map_err(|e| e.to_string())?;
-    let id = digest(identity.as_slice())?;
+    let id = request_key(
+        &(
+            input.to_string_lossy().as_ref(),
+            &source_sha256,
+            &transport::canonical_key(endpoint),
+            &options.model,
+            &options.language,
+            options.timestamps,
+            limit,
+            &raw_parts,
+        ),
+        options.provider_profile,
+    )?;
     let prefix = format!("{}-{}", safe_name(&input), &id[..16]);
-    let manifest = serde_json::to_vec_pretty(&serde_json::json!({
+    let mut manifest = serde_json::json!({
         "source": input, "source_sha256": source_sha256,
         "model": options.model, "sample_rate": 16000, "parts": raw_parts
-    }))
-    .map_err(|e| e.to_string())?;
+    });
+    if let Some(profile) = options.provider_profile {
+        manifest["provider_profile"] = serde_json::to_value(profile).map_err(|e| e.to_string())?;
+        manifest["endpoint"] = serde_json::Value::String(transport::canonical_key(endpoint));
+    }
+    let manifest = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     let (text_path, json_path) =
         publish_aggregate(&options.output_dir, &prefix, text.as_bytes(), &manifest)?;
     let saved = Aggregate {
@@ -804,24 +897,25 @@ fn process_part(
     endpoint: &transport::Endpoint,
     key: Option<&str>,
     job_dir: &Path,
-) -> Result<review::ReviewTrack, String> {
+) -> Result<PartOutput, String> {
     let part_sha256 = if part.is_some() {
         digest(File::open(upload).map_err(|e| e.to_string())?)?
     } else {
         source_sha256.to_owned()
     };
-    let identity = serde_json::to_vec(&(
-        input.to_string_lossy().as_ref(),
-        source_sha256,
-        &part_sha256,
-        part,
-        &transport::canonical_key(endpoint),
-        &options.model,
-        &options.language,
-        options.timestamps,
-    ))
-    .map_err(|e| e.to_string())?;
-    let id = digest(identity.as_slice())?;
+    let id = request_key(
+        &(
+            input.to_string_lossy().as_ref(),
+            source_sha256,
+            &part_sha256,
+            part,
+            &transport::canonical_key(endpoint),
+            &options.model,
+            &options.language,
+            options.timestamps,
+        ),
+        options.provider_profile,
+    )?;
     let state_path = job_dir.join(format!("{id}.json"));
     let response_path = job_dir.join(format!("{id}.response.json"));
     let base = format!("{}-{}", safe_name(input), &id[..16]);
@@ -847,6 +941,7 @@ fn process_part(
             || job.model != options.model
             || job.language != options.language
             || job.timestamps != options.timestamps
+            || job.provider_profile != options.provider_profile
             || job.chunk_offset_frames != part.map(|(offset, _)| offset)
             || job.chunk_frames != part.map(|(_, frames)| frames)
             || !valid_output_path(&job.text, &options.output_dir, &base, ".txt")
@@ -875,14 +970,14 @@ fn process_part(
                 input.display(),
                 job.text.display()
             );
-            let timing = review_segments(options, raw.as_ref(), upload, part);
-            return Ok(review::ReviewTrack {
-                label: safe_name(input),
-                audio: input.to_owned(),
+            return Ok(part_output(
+                input,
+                upload,
+                part,
+                options,
                 text,
-                segments: timing,
-                untimed: Vec::new(),
-            });
+                raw.as_ref(),
+            ));
         }
         if job.status == "unknown" && !response_path.exists() && !options.retry_unknown {
             return Err(
@@ -911,6 +1006,7 @@ fn process_part(
         model: options.model.clone(),
         language: options.language.clone(),
         timestamps: options.timestamps,
+        provider_profile: options.provider_profile,
         text: options.output_dir.join(format!("{prefix}.txt")),
         json: None,
         chunk_offset_frames: part.map(|(offset, _)| offset),
@@ -938,6 +1034,7 @@ fn process_part(
             options.language.as_deref(),
             upload,
             options.timestamps,
+            options.provider_profile,
         ) {
             Ok(response) => response,
             Err(error) => {
@@ -972,14 +1069,40 @@ fn process_part(
     job.status = "complete".into();
     save_state(&state_path, &job)?;
     println!("{} -> {}", input.display(), job.text.display());
-    let timing = review_segments(options, raw.as_ref(), upload, part);
-    Ok(review::ReviewTrack {
-        label: safe_name(input),
-        audio: input.to_owned(),
+    Ok(part_output(
+        input,
+        upload,
+        part,
+        options,
         text,
-        segments: timing,
-        untimed: Vec::new(),
-    })
+        raw.as_ref(),
+    ))
+}
+
+fn part_output(
+    input: &Path,
+    upload: &Path,
+    part: Option<(u64, u64)>,
+    options: &Options,
+    text: String,
+    raw: Option<&serde_json::Value>,
+) -> PartOutput {
+    let speaker_segments = if options.provider_profile.is_some() {
+        part.map(|(_, frames)| speaker_segments(raw, frames as f64 / 16_000.0))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    PartOutput {
+        track: review::ReviewTrack {
+            label: safe_name(input),
+            audio: input.to_owned(),
+            text,
+            segments: review_segments(options, raw, upload, part),
+            untimed: Vec::new(),
+        },
+        speaker_segments,
+    }
 }
 
 #[cfg(test)]
@@ -1173,6 +1296,85 @@ mod tests {
             digest("abc".as_bytes()).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn provider_profile_keeps_legacy_job_keys_and_validates_modes() {
+        let legacy = (
+            "media",
+            "digest",
+            "http://localhost:8000/v1",
+            "model",
+            false,
+        );
+        let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+        let profile = transport::ProviderProfile::OpenAiDiarizedV1;
+        assert_eq!(
+            request_key(&legacy, None).unwrap(),
+            digest(legacy_bytes.as_slice()).unwrap()
+        );
+        assert_ne!(
+            request_key(&legacy, None).unwrap(),
+            request_key(&legacy, Some(profile)).unwrap()
+        );
+        let options = Options {
+            provider_profile: Some(profile),
+            timestamps: true,
+            ..Options::default()
+        };
+        assert!(validate_batch(&options).is_err());
+        assert!(
+            "unrecognized"
+                .parse::<transport::ProviderProfile>()
+                .is_err()
+        );
+        assert_eq!("openai-diarized-v1".parse(), Ok(profile));
+    }
+
+    #[test]
+    fn diarized_chunks_keep_valid_speaker_intervals_and_full_text() {
+        let raw = serde_json::json!({
+            "text": "one two three four",
+            "segments": [
+                {"start": 0.0, "end": 0.4, "text":"one","speaker":"A"},
+                {"start": 0.3, "end": 0.5, "text":"two","speaker":"B"},
+                {"start": 0.5, "end": 0.7, "text":"three","speaker":"\r"},
+                {"start": 0.7, "end": 1.2, "text":"four","speaker":"C"}
+            ],
+        });
+        let path = Path::new("example.wav");
+        let options = Options {
+            provider_profile: Some(transport::ProviderProfile::OpenAiDiarizedV1),
+            ..Options::default()
+        };
+        let output = part_output(
+            path,
+            path,
+            Some((32_000, 16_000)),
+            &options,
+            "one two three four".into(),
+            Some(&raw),
+        );
+        assert_eq!(output.track.text, "one two three four");
+        assert_eq!(output.speaker_segments.len(), 4);
+        assert_eq!(output.speaker_segments[0].speaker.as_deref(), Some("A"));
+        assert_eq!(output.speaker_segments[1].speaker.as_deref(), Some("B"));
+        assert_eq!(output.speaker_segments[1].start, Some(0.3));
+        assert_eq!(output.speaker_segments[1].end, Some(0.5));
+        assert_eq!(output.speaker_segments[2].speaker, None);
+        assert_eq!(output.speaker_segments[2].start, Some(0.5));
+        assert_eq!(output.speaker_segments[3].speaker, None);
+        assert_eq!(output.speaker_segments[3].start, None);
+        let output = part_output(
+            path,
+            path,
+            Some((0, 16_000)),
+            &options,
+            "text only".into(),
+            None,
+        );
+        assert_eq!(output.track.text, "text only");
+        assert!(output.speaker_segments.is_empty());
     }
 
     #[test]

@@ -25,13 +25,15 @@ Extract `AudioCapture-Rust-Windows-x64.zip`. Run `audio-capture.exe` from the ex
 
 Select **Transcribe files…** to choose completed recordings. This opens the separate `transcribe.exe` console. It sends audio to your chosen endpoint after you confirm the job. You can also run the worker directly.
 
+Use the worker's speaker commands to separate voices, review inferred names, and export complete transcripts for agent memory. The recorder loads no speaker model. Install the optional local adapter to run diarization on your computer. [Speaker workflow](docs/speaker-workflow.md)
+
 ## Documentation
 
 - Recording profiles, settings, and transcription steps. [Operator guide](rust/README.md)
 - Guides for recording, transcription, and troubleshooting. [Repository wiki](docs/wiki/README.md)
 - Measurements and commands to repeat them. [Performance](docs/performance.md)
 - OpenSpec changes. [Recording profiles](openspec/changes/add-efficient-recording-profiles) · [Rust recorder](openspec/changes/rewrite-windows-recorder) · [Transcription integration](openspec/changes/integrate-recorder-and-transcription)
-- Planned speaker diarization, contextual name attribution, and complete agent memory export. [OpenSpec change](openspec/changes/add-speaker-attribution-and-memory-export)
+- Speaker attribution and memory export requirements. [OpenSpec change](openspec/changes/add-speaker-attribution-and-memory-export)
 
 ## Original C++ recorder
 

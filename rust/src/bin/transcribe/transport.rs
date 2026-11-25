@@ -11,6 +11,7 @@ use std::io::Read;
 use std::net::IpAddr;
 use std::path::Path;
 use std::ptr::{null, null_mut};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,6 +20,30 @@ use windows_sys::Win32::Networking::WinHttp::*;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const BLOCK_SIZE: usize = 64 * 1024;
 static NEXT_BOUNDARY: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub enum ProviderProfile {
+    #[serde(rename = "openai-diarized-v1")]
+    OpenAiDiarizedV1,
+}
+
+impl ProviderProfile {
+    pub const OPENAI_DIARIZED_V1: &str = "openai-diarized-v1";
+}
+
+impl FromStr for ProviderProfile {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            Self::OPENAI_DIARIZED_V1 => Ok(Self::OpenAiDiarizedV1),
+            _ => Err(format!(
+                "Unknown provider profile. Choose {} for a compatible endpoint and model.",
+                Self::OPENAI_DIARIZED_V1
+            )),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -274,7 +299,14 @@ pub fn transcribe(
     language: Option<&str>,
     file: &Path,
     timestamps: bool,
+    profile: Option<ProviderProfile>,
 ) -> Result<Response, TransportError> {
+    if timestamps && profile.is_some() {
+        return Err(error(
+            "Choose either timestamps or a provider profile",
+            false,
+        ));
+    }
     if !valid_field(model) || language.is_some_and(|value| !valid_field(value)) {
         return Err(error("Invalid model or language", false));
     }
@@ -305,8 +337,15 @@ pub fn transcribe(
     if let Some(language) = language {
         add_field(&mut prefix, &boundary, "language", language);
     }
-    if timestamps {
-        add_field(&mut prefix, &boundary, "response_format", "verbose_json");
+    match profile {
+        Some(ProviderProfile::OpenAiDiarizedV1) => {
+            add_field(&mut prefix, &boundary, "response_format", "diarized_json");
+            add_field(&mut prefix, &boundary, "chunking_strategy", "auto");
+        }
+        None if timestamps => {
+            add_field(&mut prefix, &boundary, "response_format", "verbose_json");
+        }
+        None => {}
     }
     prefix.extend_from_slice(format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.{extension}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
@@ -476,6 +515,16 @@ mod tests {
 
     #[test]
     fn posts_a_prefixed_multipart_request_to_a_local_endpoint() {
+        for (timestamps, profile) in [
+            (false, None),
+            (true, None),
+            (false, Some(ProviderProfile::OpenAiDiarizedV1)),
+        ] {
+            assert_prefixed_multipart(timestamps, profile);
+        }
+    }
+
+    fn assert_prefixed_multipart(timestamps: bool, profile: Option<ProviderProfile>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let worker = thread::spawn(move || {
@@ -515,7 +564,18 @@ mod tests {
             }
             let body = String::from_utf8(bytes[header_end..].to_vec()).unwrap();
             assert!(body.contains("name=\"model\"\r\n\r\nlocal-model\r\n"));
-            assert!(body.contains("name=\"response_format\"\r\n\r\nverbose_json\r\n"));
+            assert_eq!(
+                body.contains("name=\"response_format\"\r\n\r\nverbose_json\r\n"),
+                timestamps
+            );
+            assert_eq!(
+                body.contains("name=\"response_format\"\r\n\r\ndiarized_json\r\n"),
+                profile.is_some()
+            );
+            assert_eq!(
+                body.contains("name=\"chunking_strategy\"\r\n\r\nauto\r\n"),
+                profile.is_some()
+            );
             assert!(body.contains("filename=\"recording.opus\""));
             assert!(body.contains("synthetic-audio"));
             let response = b"{\"text\":\"hello\"}";
@@ -534,7 +594,8 @@ mod tests {
             Some("test-token"),
             Some("en"),
             &file,
-            true,
+            timestamps,
+            profile,
         );
         std::fs::remove_file(&file).unwrap();
         let response = result.unwrap();
@@ -601,7 +662,7 @@ mod tests {
             ));
             std::fs::write(&file, b"synthetic-audio").unwrap();
             let target = endpoint(&format!("http://{address}/v1"), false).unwrap();
-            let failure = transcribe(&target, "local", None, None, &file, false).unwrap_err();
+            let failure = transcribe(&target, "local", None, None, &file, false, None).unwrap_err();
             std::fs::remove_file(&file).unwrap();
             assert!(failure.message.contains(expected), "{}", failure.message);
             if status.starts_with("503") {

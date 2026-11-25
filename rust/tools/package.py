@@ -4,7 +4,8 @@ Run from the Rust project:
     python tools/package.py --output C:/path/to/audio-capture.zip
 
 This builds both release executables with Cargo's locked, offline dependency set.
-Registry source packages must already be available offline. The ZIP uses fixed
+Registry source packages must already be available offline. The ZIP includes the
+operator guide and optional local diarization script. The ZIP uses fixed
 timestamps, but the executables' bytes depend on the build.
 """
 
@@ -22,6 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TARGET = "x86_64-pc-windows-msvc"
 FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 BINARIES = ("audio-capture", "transcribe")
+SUPPORT_FILES = ("README.md", "tools/diarize_local.py")
 
 
 def cargo(*args):
@@ -38,8 +40,9 @@ def archive_entry(archive, name, data):
 
 
 def source_digest():
-    """Identify the local inputs that can change the packaged executables."""
+    """Identify the local inputs that can change the package."""
     paths = [ROOT / "Cargo.toml", ROOT / "Cargo.lock"]
+    paths.extend(ROOT / name for name in SUPPORT_FILES)
     for directory in (ROOT / "src", ROOT / ".cargo"):
         if directory.is_dir():
             paths.extend(path for path in directory.rglob("*") if path.is_file())
@@ -102,9 +105,11 @@ def main():
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
     output = args.output.resolve()
-    readme = ROOT / "README.md"
     if output.exists():
         parser.error(f"Output already exists: {output}")
+    for name in SUPPORT_FILES:
+        if not (ROOT / name).is_file():
+            parser.error(f"Required file not found: {name}")
 
     before = source_digest()
     metadata = json.loads(cargo("metadata", "--offline", "--locked", "--format-version",
@@ -118,8 +123,6 @@ def main():
         match = re.match(r"^([^ ]+) v([^ ]+)", line)
         if match:
             selected.add(match.groups())
-    if not readme.is_file():
-        parser.error(f"Required file not found: {readme}")
     packages = sorted(
         (p for p in metadata["packages"]
          if (p["name"], p["version"]) in selected and p["name"] != "audio-capture"),
@@ -135,7 +138,8 @@ def main():
     entries = {}
     index = ["# Runtime dependency inventory", "",
              "Cargo normal dependencies for " + TARGET + ".", "",
-             "License expressions come from published crate metadata.", ""]
+             "License expressions come from published crate metadata.", "",
+             "The optional diarization script uses a separate Python environment and local models.", ""]
     missing = []
     for package in packages:
         name, version = package["name"], package["version"]
@@ -171,10 +175,12 @@ def main():
     if missing:
         raise RuntimeError("Notice collection incomplete:\n" + "\n".join(missing))
 
+    entries["licenses/DEPENDENCIES.md"] = ("\n".join(index) + "\n").encode("utf-8")
+    notice_count = len(entries)
     for name, binary in binaries.items():
         entries[f"{name}.exe"] = binary.read_bytes()
-    entries["README.md"] = readme.read_bytes()
-    entries["licenses/DEPENDENCIES.md"] = ("\n".join(index) + "\n").encode("utf-8")
+    for name in SUPPORT_FILES:
+        entries[name] = (ROOT / name).read_bytes()
     if source_digest() != before:
         raise RuntimeError("Build inputs changed while packaging; run the packager again")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +192,7 @@ def main():
         digest = hashlib.sha256(entries[f"{name}.exe"]).hexdigest()
         print(f"{name}.exe SHA-256: {digest}")
     print(f"Archive SHA-256: {hashlib.sha256(output.read_bytes()).hexdigest()}")
-    print(f"Included {len(packages)} runtime dependency records and {len(entries) - 3} notices.")
+    print(f"Included {len(packages)} runtime dependency records and {notice_count} notices.")
 
 
 if __name__ == "__main__":

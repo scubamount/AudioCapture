@@ -24,12 +24,15 @@ class PackagingTests(unittest.TestCase):
         (self.root / "Cargo.toml").write_text("package", encoding="utf-8")
         (self.root / "Cargo.lock").write_text("locked", encoding="utf-8")
         (self.root / "README.md").write_text("readme", encoding="utf-8")
+        self.adapter = self.root / "tools/diarize_local.py"
+        self.adapter.parent.mkdir()
+        self.adapter.write_text("# Optional local adapter", encoding="utf-8")
         self.dep = self.root / "dependency"
         self.dep.mkdir()
         (self.dep / "LICENSE").write_text("license", encoding="utf-8")
         self.output = Path(self.temp.name) / "output.zip"
         self.built = []
-        self.change_during_build = False
+        self.change_during_build = None
         self.patches = [
             patch.object(packager, "ROOT", self.root),
             patch.object(packager, "cargo", self.cargo),
@@ -68,8 +71,8 @@ class PackagingTests(unittest.TestCase):
                 "target": {"name": name, "kind": ["bin"]},
                 "executable": str(executable),
             }))
-        if self.change_during_build:
-            (self.root / "src/main.rs").write_text("changed during build", encoding="utf-8")
+        if self.change_during_build is not None:
+            self.change_during_build.write_text("changed during build", encoding="utf-8")
         return "\n".join(messages)
 
     def run_main(self, output=None):
@@ -80,21 +83,40 @@ class PackagingTests(unittest.TestCase):
         (self.root / "audio-capture.exe").write_text("stale", encoding="utf-8")
         (self.root / "transcribe.exe").write_text("stale", encoding="utf-8")
         (self.root / "src/main.rs").write_text("updated", encoding="utf-8")
+        for excluded in ("model.onnx", "python.exe", "private.opus", "test_package.py"):
+            self.adapter.with_name(excluded).write_bytes(b"excluded")
         self.run_main()
         with zipfile.ZipFile(self.output) as archive:
             self.assertEqual(archive.read("audio-capture.exe"), b"updated")
             self.assertEqual(archive.read("transcribe.exe"), b"updated")
-            self.assertIn("licenses/dep-1.0.0/LICENSE", archive.namelist())
+            self.assertEqual(archive.read("tools/diarize_local.py"), self.adapter.read_bytes())
+            self.assertEqual(set(archive.namelist()), {
+                "audio-capture.exe", "transcribe.exe", "README.md", "tools/diarize_local.py",
+                "licenses/DEPENDENCIES.md", "licenses/dep-1.0.0/LICENSE",
+            })
         second = Path(self.temp.name) / "second.zip"
         self.run_main(second)
         self.assertEqual(self.output.read_bytes(), second.read_bytes())
         self.assertEqual(len(self.built), 2)
 
     def test_rejects_source_change_during_build(self):
-        self.change_during_build = True
+        self.change_during_build = self.root / "src/main.rs"
         with self.assertRaisesRegex(RuntimeError, "changed while packaging"):
             self.run_main()
         self.assertFalse(self.output.exists())
+
+    def test_rejects_adapter_change_during_build(self):
+        self.change_during_build = self.adapter
+        with self.assertRaisesRegex(RuntimeError, "changed while packaging"):
+            self.run_main()
+        self.assertFalse(self.output.exists())
+
+    def test_missing_adapter_fails_before_build(self):
+        self.adapter.unlink()
+        with self.assertRaises(SystemExit):
+            self.run_main()
+        self.assertFalse(self.output.exists())
+        self.assertEqual(self.built, [])
 
     def test_existing_output_is_not_replaced(self):
         self.output.write_bytes(b"previous")
