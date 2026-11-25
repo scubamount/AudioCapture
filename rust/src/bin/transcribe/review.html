@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src file:; base-uri 'none'">
+<title>Transcript review</title>
+<style>
+  :root { color-scheme: light; font-family: "Segoe UI", sans-serif; color: #202833; background: #f4f6f8; }
+  body { max-width: 1050px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  p { color: #52616f; line-height: 1.5; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 24px 0; }
+  label { display: grid; gap: 5px; font-weight: 600; }
+  input[type="search"] { width: min(380px, 70vw); }
+  input, button, textarea { font: inherit; }
+  input[type="search"], textarea { border: 1px solid #a8b6c3; border-radius: 6px; padding: 9px; }
+  button { border: 1px solid #a8b6c3; background: white; color: #183247; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
+  button:hover { border-color: #24678d; background: #f0f8fc; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, audio:focus-visible { outline: 3px solid #2997cf; outline-offset: 2px; }
+  .loop { display: flex; gap: 7px; align-items: center; padding: 9px 0; font-weight: normal; }
+  .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .source, .segment { background: white; border: 1px solid #d6dfe6; border-radius: 8px; padding: 14px; }
+  .source strong { display: block; margin-bottom: 10px; overflow-wrap: anywhere; }
+  audio { width: 100%; }
+  .segment { margin: 8px 0; }
+  .timeline { margin-top: 24px; }
+  .timeline h2 { font-size: 19px; overflow-wrap: anywhere; }
+  .heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .name { font-weight: 700; overflow-wrap: anywhere; }
+  .time { color: #52616f; font-variant-numeric: tabular-nums; }
+  .segment textarea { box-sizing: border-box; width: 100%; min-height: 72px; resize: vertical; line-height: 1.5; }
+  #message { min-height: 1.5em; }
+  .muted { color: #52616f; }
+</style>
+</head>
+<body>
+<h1>Transcript review</h1>
+<p>Search and edit the transcript, then export a copy. Select a timed segment to play it from its source recording.</p>
+<div class="toolbar">
+  <label>Search transcript <input id="search" type="search" placeholder="Find words or a source"></label>
+  <label class="loop"><input id="loop" type="checkbox"> Loop selected segment</label>
+  <button id="export-text" type="button">Export text</button>
+  <button id="export-json" type="button">Export JSON</button>
+</div>
+<p id="message" role="status" aria-live="polite"></p>
+<div id="sources" class="sources" aria-label="Source recordings"></div>
+<div id="segments" aria-label="Transcript segments"></div>
+<script>
+"use strict";
+const tracks = /* AUDIO_CAPTURE_TRACKS */;
+const sameSession = /* AUDIO_CAPTURE_SAME_SESSION */;
+const sources = document.getElementById("sources");
+const segmentList = document.getElementById("segments");
+const search = document.getElementById("search");
+const repeat = document.getElementById("loop");
+const message = document.getElementById("message");
+const rows = [];
+const players = [];
+let activeRange = null;
+
+function formatTime(seconds) {
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  const remainder = total % 60;
+  const fraction = Math.floor((seconds - total) * 1000);
+  return (hours ? String(hours) + ":" + String(minutes).padStart(2, "0") : String(minutes))
+    + ":" + String(remainder).padStart(2, "0") + "." + String(fraction).padStart(3, "0");
+}
+
+function playSegment(trackIndex, start, end) {
+  players.forEach((player, index) => { if (index !== trackIndex) player.pause(); });
+  const player = players[trackIndex];
+  activeRange = { player, start, end };
+  const requestedRange = activeRange;
+  const seekAndPlay = () => {
+    if (activeRange !== requestedRange) return;
+    try {
+      player.currentTime = start;
+      player.play().catch(() => { message.textContent = "The recording could not be played. Check the source file."; });
+    } catch (_) {
+      message.textContent = "The recording could not be played. Check the source file.";
+    }
+  };
+  if (player.readyState >= 1) seekAndPlay();
+  else {
+    player.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+    player.load();
+  }
+}
+
+tracks.forEach((track, trackIndex) => {
+  const card = document.createElement("div");
+  card.className = "source";
+  const name = document.createElement("strong");
+  name.textContent = track.label;
+  card.appendChild(name);
+  const player = document.createElement("audio");
+  player.controls = true;
+  player.preload = "none";
+  player.src = track.audio;
+  player.setAttribute("aria-label", "Audio for " + track.label);
+  player.addEventListener("error", () => { message.textContent = "Cannot open the recording for " + track.label + "."; });
+  player.addEventListener("seeking", () => {
+    if (activeRange && activeRange.player === player
+        && (player.currentTime < activeRange.start || player.currentTime > activeRange.end)) {
+      activeRange = null;
+    }
+  });
+  player.addEventListener("timeupdate", () => {
+    if (!activeRange || activeRange.player !== player || player.currentTime < activeRange.end) return;
+    if (repeat.checked && activeRange.end > activeRange.start) player.currentTime = activeRange.start;
+    else { player.pause(); activeRange = null; }
+  });
+  card.appendChild(player);
+  sources.appendChild(card);
+  players.push(player);
+
+  track.segments.forEach((segment, segmentIndex) => {
+    rows.push({ trackIndex, segmentIndex, start: segment.start, end: segment.end, original: segment.text });
+  });
+  track.untimed.forEach(text => {
+    rows.push({ trackIndex, segmentIndex: null, start: null, end: null, original: text });
+  });
+  if (!track.segments.length && !track.untimed.length) {
+    rows.push({ trackIndex, segmentIndex: null, start: null, end: null, original: track.text });
+  }
+});
+// Group independent recordings before sorting their source-relative times.
+// Stable sort preserves source order for simultaneous starts.
+rows.sort((a, b) => {
+  if (!sameSession && a.trackIndex !== b.trackIndex) return a.trackIndex - b.trackIndex;
+  if (a.start === null) return b.start === null ? 0 : 1;
+  if (b.start === null) return -1;
+  return a.start - b.start;
+});
+const timelines = new Map();
+rows.forEach(row => {
+  const group = sameSession ? 0 : row.trackIndex;
+  if (!timelines.has(group)) {
+    const timeline = document.createElement("section");
+    timeline.className = "timeline";
+    const title = document.createElement("h2");
+    title.textContent = sameSession
+      ? "Shared timeline"
+      : "Timeline " + (group + 1) + " · " + tracks[group].label;
+    timeline.appendChild(title);
+    segmentList.appendChild(timeline);
+    timelines.set(group, timeline);
+  }
+  const section = document.createElement("section");
+  section.className = "segment";
+  const heading = document.createElement("div");
+  heading.className = "heading";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = tracks[row.trackIndex].label;
+  heading.appendChild(name);
+  const time = document.createElement("span");
+  time.className = "time";
+  time.textContent = row.start === null ? "No timestamp" : formatTime(row.start) + " – " + formatTime(row.end);
+  heading.appendChild(time);
+  if (row.start !== null) {
+    const play = document.createElement("button");
+    play.type = "button";
+    play.textContent = "Play segment";
+    play.setAttribute("aria-label", "Play " + name.textContent + " at " + formatTime(row.start));
+    play.addEventListener("click", () => playSegment(row.trackIndex, row.start, row.end));
+    heading.appendChild(play);
+  }
+  const edit = document.createElement("textarea");
+  edit.value = row.original;
+  edit.setAttribute("aria-label", "Edit transcript for " + name.textContent + ", " + time.textContent);
+  edit.addEventListener("input", filterRows);
+  section.appendChild(heading);
+  section.appendChild(edit);
+  timelines.get(group).appendChild(section);
+  row.element = section;
+  row.edit = edit;
+  row.group = group;
+});
+
+function filterRows() {
+  const term = search.value.trim().toLocaleLowerCase();
+  const visibleGroups = new Set();
+  rows.forEach(row => {
+    const haystack = (tracks[row.trackIndex].label + " " + row.edit.value).toLocaleLowerCase();
+    row.element.hidden = Boolean(term && !haystack.includes(term));
+    if (!row.element.hidden) visibleGroups.add(row.group);
+  });
+  timelines.forEach((timeline, group) => {
+    timeline.hidden = !visibleGroups.has(group);
+  });
+}
+search.addEventListener("input", filterRows);
+
+function download(name, type, content) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function editedRows() {
+  return rows.map(row => ({
+    timeline: sameSession ? "Shared timeline" : "Timeline " + (row.trackIndex + 1),
+    source: tracks[row.trackIndex].label,
+    audio: tracks[row.trackIndex].audio,
+    start: row.start,
+    end: row.end,
+    original: row.original,
+    edited: row.edit.value
+  }));
+}
+document.getElementById("export-text").addEventListener("click", () => {
+  const text = editedRows().map(row =>
+    "[" + row.timeline + " · " + row.source + (row.start === null ? "" : " " + formatTime(row.start)) + "] " + row.edited
+  ).join("\n\n");
+  download("transcript-edited.txt", "text/plain;charset=utf-8", text + "\n");
+});
+document.getElementById("export-json").addEventListener("click", () => {
+  download("transcript-edited.json", "application/json;charset=utf-8", JSON.stringify({ segments: editedRows() }, null, 2) + "\n");
+});
+</script>
+</body>
+</html>

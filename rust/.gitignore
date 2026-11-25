@@ -1,2 +1,3 @@
 /target/
+!/src/bin/
 !tests/fixtures/upstream-wav-pcm16.wav

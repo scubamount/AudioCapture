@@ -30,6 +30,9 @@ struct WavWriter {
     filter: Vec<f64>,
     history: [[f64; 2]; 63],
     history_index: usize,
+    // A symmetric 63-tap filter delays the signal by 31 input frames.
+    filter_delay: usize,
+    finished: bool,
 }
 
 impl Writer {
@@ -91,17 +94,22 @@ impl Writer {
                 filter,
                 history: [[0.0; 2]; 63],
                 history_index: 0,
+                filter_delay: if rate == 48_000 { 0 } else { 31 },
+                finished: false,
             };
             wav.header()
                 .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
             Kind::Wav(wav)
-        } else if format == "opus" {
+        } else if format == "opus" || format == "opus-speech" {
             if rate != 48_000 {
                 return Err("Opus output uses a 48000 Hz stream".into());
             }
-            Kind::Opus(Some(crate::opus_writer::OpusWriter::open(
-                path, channels, bitrate,
-            )?))
+            let opus = if format == "opus-speech" {
+                crate::opus_writer::OpusWriter::open_speech(path, channels, bitrate)?
+            } else {
+                crate::opus_writer::OpusWriter::open(path, channels, bitrate)?
+            };
+            Kind::Opus(Some(opus))
         } else if format == "flac" {
             if rate != 48_000 {
                 return Err("FLAC output uses a 48000 Hz stream".into());
@@ -151,8 +159,7 @@ impl Writer {
     pub fn finish(mut self) -> Result<(), String> {
         match &mut self.kind {
             Kind::Wav(wav) => wav
-                .header()
-                .and_then(|()| wav.file.flush())
+                .finish()
                 .map_err(|e| format!("Cannot finalize {}: {e}", self.path.display())),
             Kind::Opus(opus) => opus.take().ok_or("Opus encoder is closed")?.finish(),
             Kind::Flac(flac) => flac.take().ok_or("FLAC encoder is closed")?.finish(),
@@ -162,6 +169,22 @@ impl Writer {
 }
 
 impl WavWriter {
+    fn finish(&mut self) -> io::Result<()> {
+        if self.finished {
+            return Ok(());
+        }
+        // Mark the writer first so Drop does not repeat padding after an I/O error.
+        self.finished = true;
+        let padding = if self.filter.is_empty() {
+            Ok(())
+        } else {
+            self.write(&[0.0; 31 * 2])
+        };
+        let header = self.header();
+        let flush = self.file.flush();
+        padding.and(header).and(flush)
+    }
+
     fn header(&mut self) -> io::Result<()> {
         let file = &mut self.file;
         file.seek(SeekFrom::Start(0))?;
@@ -199,6 +222,10 @@ impl WavWriter {
                 }
                 self.history_index = (self.history_index + 1) % 63;
                 source = filtered;
+                if self.filter_delay > 0 {
+                    self.filter_delay -= 1;
+                    continue;
+                }
             }
             let mut remaining = self.rate;
             while remaining > 0 {
@@ -275,8 +302,7 @@ impl WavWriter {
 impl Drop for Writer {
     fn drop(&mut self) {
         if let Kind::Wav(wav) = &mut self.kind {
-            let _ = wav.header();
-            let _ = wav.file.flush();
+            let _ = wav.finish();
         }
         if let Kind::Opus(opus) = &mut self.kind {
             if let Some(opus) = opus.take() {
@@ -337,12 +363,106 @@ mod tests {
     }
 
     #[test]
+    fn wav_downsampled_keeps_boundary_impulses_and_alignment() {
+        for rate in [16_000, 44_100] {
+            let path = destination("wav");
+            let mut writer = Writer::open(&path, "wav", rate, 1, 0, 0).unwrap();
+            let mut samples = vec![0.0; 48_000 * 2];
+            for frame in [0, 24_000, 47_999] {
+                samples[frame * 2] = 1.0;
+                samples[frame * 2 + 1] = 1.0;
+            }
+            for chunk in samples.chunks(246) {
+                writer.write(chunk).unwrap();
+            }
+            writer.finish().unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let pcm: Vec<i16> = bytes[44..]
+                .chunks_exact(2)
+                .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
+                .collect();
+            assert_eq!(pcm.len(), rate as usize);
+            assert!(
+                pcm[..8].iter().any(|s| s.unsigned_abs() > 100),
+                "{rate} lost the beginning"
+            );
+            assert!(
+                pcm[pcm.len() - 8..].iter().any(|s| s.unsigned_abs() > 100),
+                "{rate} lost the end"
+            );
+            let mid = rate as usize / 2;
+            let actual = (mid - 4..=mid + 4)
+                .max_by_key(|&i| pcm[i].unsigned_abs())
+                .unwrap();
+            assert!(
+                actual.abs_diff(mid) <= 1,
+                "{rate} impulse shifted to {actual}"
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn wav_downsampled_short_inputs_have_expected_duration() {
+        for rate in [16_000, 44_100] {
+            for frames in [0, 1, 2, 3, 7, 30, 31, 32, 33, 70, 97] {
+                let path = destination("wav");
+                let mut writer = Writer::open(&path, "wav", rate, 1, 0, 0).unwrap();
+                let samples = vec![0.5; frames * 2];
+                for chunk in samples.chunks(2) {
+                    writer.write(chunk).unwrap();
+                }
+                writer.finish().unwrap();
+                let bytes = std::fs::read(&path).unwrap();
+                assert_eq!(
+                    bytes.len() - 44,
+                    frames * rate as usize / 48_000 * 2,
+                    "{rate} Hz, {frames} frames"
+                );
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn wav_drop_finalizes_the_filter_tail_once() {
+        let finished_path = destination("wav");
+        let dropped_path = destination("wav");
+        let mut samples = vec![0.0; 2_000];
+        samples[1_998] = 1.0;
+        samples[1_999] = 1.0;
+        let mut finished = Writer::open(&finished_path, "wav", 16_000, 1, 0, 0).unwrap();
+        let mut dropped = Writer::open(&dropped_path, "wav", 16_000, 1, 0, 0).unwrap();
+        finished.write(&samples).unwrap();
+        dropped.write(&samples).unwrap();
+        finished.finish().unwrap();
+        drop(dropped);
+        assert_eq!(
+            std::fs::read(&finished_path).unwrap(),
+            std::fs::read(&dropped_path).unwrap()
+        );
+        std::fs::remove_file(finished_path).unwrap();
+        std::fs::remove_file(dropped_path).unwrap();
+    }
+
+    #[test]
     fn existing_output_is_never_overwritten() {
         let path = destination("wav");
         std::fs::write(&path, b"existing").unwrap();
         assert!(Writer::open(&path, "wav", 48_000, 2, 0, 0).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"existing");
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn speech_opus_profile_requires_mono() {
+        let path = destination("opus");
+        let error = match Writer::open(&path, "opus-speech", 48_000, 2, 32, 0) {
+            Err(error) => error,
+            Ok(_) => panic!("speech profile accepted stereo"),
+        };
+        assert!(error.contains("mono"), "{error}");
+        assert!(!path.exists());
     }
 
     fn pcm_payload(wav: &[u8]) -> &[u8] {
@@ -481,7 +601,9 @@ mod tests {
         writer.write(&samples).unwrap();
         writer.finish().unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        let peak = bytes[2044..]
+        // Zero-padding the final filter history introduces a normal end
+        // transient. Measure rejection on steady-state audio.
+        let peak = bytes[2044..bytes.len() - 64]
             .chunks_exact(2)
             .map(|sample| i16::from_le_bytes([sample[0], sample[1]]).unsigned_abs())
             .max()

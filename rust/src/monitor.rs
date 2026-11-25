@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -8,6 +8,25 @@ use std::time::Duration;
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
 const MAX_PENDING_SAMPLES: usize = 96_000;
+const MAX_MONITOR_WORKERS: usize = 16;
+static ACTIVE_MONITORS: AtomicUsize = AtomicUsize::new(0);
+
+struct MonitorPermit;
+
+impl Drop for MonitorPermit {
+    fn drop(&mut self) {
+        ACTIVE_MONITORS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn reserve_monitor() -> Result<MonitorPermit, String> {
+    let previous = ACTIVE_MONITORS.fetch_add(1, Ordering::AcqRel);
+    if previous >= MAX_MONITOR_WORKERS {
+        ACTIVE_MONITORS.fetch_sub(1, Ordering::AcqRel);
+        return Err("Too many monitor workers are still running or stopping".to_string());
+    }
+    Ok(MonitorPermit)
+}
 
 enum Command {
     Samples(Vec<f32>),
@@ -22,6 +41,7 @@ pub struct Monitor {
 
 impl Monitor {
     pub fn open(endpoint_id: &str) -> Result<Self, String> {
+        let permit = reserve_monitor()?;
         let endpoint_id = endpoint_id.to_owned();
         let (sender, commands) = mpsc::sync_channel(32);
         let (error_sender, errors) = mpsc::channel();
@@ -29,6 +49,7 @@ impl Monitor {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
+            let _permit = permit;
             if let Err(error) = run(&endpoint_id, commands, &ready_sender, &worker_stop) {
                 let _ = ready_sender.send(Err(error.clone()));
                 let _ = error_sender.send(error);
@@ -55,13 +76,16 @@ impl Monitor {
     // This never waits for the audio endpoint. The caller can disable monitoring
     // while recording continues if the queue or the endpoint fails.
     pub fn write(&mut self, samples: &[f32]) -> Result<(), String> {
-        if let Ok(error) = self.errors.try_recv() {
-            return Err(error);
-        }
+        self.write_owned(samples.to_vec())
+    }
+
+    /// Transfer a block to the playback worker without making another copy.
+    pub fn write_owned(&mut self, samples: Vec<f32>) -> Result<(), String> {
+        self.check()?;
         if samples.len() % 2 != 0 || samples.len() > MAX_PENDING_SAMPLES {
             return Err("Invalid monitor buffer size".to_string());
         }
-        match self.sender.try_send(Command::Samples(samples.to_vec())) {
+        match self.sender.try_send(Command::Samples(samples)) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => Err("Monitor queue is full".to_string()),
             Err(TrySendError::Disconnected(_)) => Err(self
@@ -69,6 +93,24 @@ impl Monitor {
                 .try_recv()
                 .unwrap_or_else(|_| "Monitor stopped".to_string())),
         }
+    }
+
+    /// Detect a playback failure even when no audio blocks are being sent.
+    pub fn check(&self) -> Result<(), String> {
+        if let Ok(error) = self.errors.try_recv() {
+            return Err(error);
+        }
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            return Err(self
+                .errors
+                .try_recv()
+                .unwrap_or_else(|_| "Monitor stopped".to_string()));
+        }
+        Ok(())
     }
 }
 
@@ -158,5 +200,24 @@ fn run_initialized(
                 .map_err(|e| format!("Monitor playback failed: {e}"))?;
         }
         thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_monitor_reports_background_failure() {
+        let (sender, _commands) = mpsc::sync_channel(1);
+        let (errors_tx, errors) = mpsc::channel();
+        errors_tx.send("device unavailable".into()).unwrap();
+        let output = Monitor {
+            sender,
+            errors,
+            worker: None,
+            stop: Arc::new(AtomicBool::new(false)),
+        };
+        assert_eq!(output.check().unwrap_err(), "device unavailable");
     }
 }

@@ -1,0 +1,57 @@
+name: Windows Rust build
+
+on:
+  pull_request:
+    paths:
+      - rust/**
+      - .github/workflows/rust.yml
+      - README.md
+      - BUILD.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: rust
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare the Windows toolchain
+        run: |
+          "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'audio-capture-target')" >> $env:GITHUB_ENV
+          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal --component rustfmt
+      - name: Use stable Rust for this checkout
+        run: rustup override set stable-x86_64-pc-windows-msvc
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check the recorder and mixer
+        run: |
+          cargo test --locked --offline --release --lib record::tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --offline --release --bin audio-capture
+      - name: Check the transcription worker
+        run: |
+          cargo test --locked --offline --release --bin transcribe guided
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --offline --release --bin transcribe jobs::tests
+      - name: Check packaging
+        run: python -B tools/test_package.py
+      - name: Build the portable ZIP
+        run: python -B tools/package.py --output "$env:RUNNER_TEMP/AudioCapture-Rust-Windows-x64.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: AudioCapture-Rust-Windows-x64
+          path: ${{ runner.temp }}/AudioCapture-Rust-Windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0

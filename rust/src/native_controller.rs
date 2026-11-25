@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::ptr;
 
 use crate::native_window::*;
+use crate::worker_launch::launch_transcription;
 use audio_capture::{capture, prefs, record, sources};
+use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK};
 
 type Hwnd = *mut c_void;
 #[link(name = "user32")]
@@ -29,10 +31,17 @@ const LB_SETSEL: u32 = 0x0185;
 const LB_GETSEL: u32 = 0x0187;
 const BM_GETCHECK: u32 = 0x00f0;
 const BM_SETCHECK: u32 = 0x00f1;
+const EM_GETFIRSTVISIBLELINE: u32 = 0x00ce;
+const EM_LINESCROLL: u32 = 0x00b6;
 const CBN_SELCHANGE: u16 = 1;
 const LBN_SELCHANGE: u16 = 1;
 const BN_CLICKED: u16 = 0;
 const SESSION_TIMER: usize = 1;
+const FORMATS: [&str; 5] = ["wav", "mp3", "opus", "flac", "opus-speech"];
+const SAMPLE_RATES: [u32; 4] = [0, 16_000, 44_100, 48_000];
+const OPUS_BITRATES: [u32; 8] = [24, 32, 48, 64, 96, 128, 192, 256];
+const MP3_BITRATES: [u32; 4] = [128, 192, 256, 320];
+const FLAC_LEVELS: [u32; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -52,22 +61,47 @@ fn set_text(view: &View, id: i32, value: &str) {
         SetWindowTextW(view.get(id) as Hwnd, wide(value).as_ptr());
     }
 }
+fn set_levels(view: &View, value: &str) {
+    let rendered = value.replace("\r\n", "\n").replace('\n', "\r\n");
+    if text(view, LEVELS) == rendered {
+        return;
+    }
+    // Restore the top visible source when the live levels change.
+    let line = msg(view, LEVELS, EM_GETFIRSTVISIBLELINE, 0, 0);
+    set_text(view, LEVELS, &rendered);
+    msg(view, LEVELS, EM_LINESCROLL, 0, line);
+}
+fn gain_index(gain: f32) -> usize {
+    (gain.clamp(0.0, 1.0) * 100.0).round() as usize
+}
+fn gain_value(index: usize) -> f32 {
+    index.min(100) as f32 / 100.0
+}
+fn select_format(settings: &mut prefs::Settings, index: usize) {
+    settings.format = FORMATS[index.min(FORMATS.len() - 1)].into();
+    if settings.format == "opus-speech" {
+        settings.channels = 1;
+    }
+}
 fn selected(view: &View, id: i32) -> usize {
     let result = msg(view, id, CB_GETCURSEL, 0, 0);
     if result < 0 { 0 } else { result as usize }
 }
-fn combo(view: &View, id: i32, entries: &[String], chosen: usize) {
+fn combo(view: &View, id: i32, entries: &[impl AsRef<str>], chosen: usize) {
     msg(view, id, CB_RESETCONTENT, 0, 0);
     for entry in entries {
-        msg(view, id, CB_ADDSTRING, 0, wide(entry).as_ptr() as isize);
+        msg(
+            view,
+            id,
+            CB_ADDSTRING,
+            0,
+            wide(entry.as_ref()).as_ptr() as isize,
+        );
     }
-    msg(
-        view,
-        id,
-        CB_SETCURSEL,
-        chosen.min(entries.len().saturating_sub(1)),
-        0,
-    );
+    set_selected(view, id, chosen.min(entries.len().saturating_sub(1)));
+}
+fn set_selected(view: &View, id: i32, index: usize) {
+    msg(view, id, CB_SETCURSEL, index, 0);
 }
 fn checked(view: &View, id: i32) -> bool {
     msg(view, id, BM_GETCHECK, 0, 0) == 1
@@ -80,8 +114,32 @@ fn enabled(view: &View, id: i32, enable: bool) {
         EnableWindow(view.get(id) as Hwnd, i32::from(enable));
     }
 }
-fn strings(values: &[&str]) -> Vec<String> {
-    values.iter().map(|s| (*s).to_owned()).collect()
+fn accepts_command(id: i32, session_active: bool) -> bool {
+    !session_active || [PAUSE, STOP, MARK].contains(&id)
+}
+
+fn transcribe_files(view: &View) {
+    let files = rfd::FileDialog::new()
+        .set_title("Select files to transcribe")
+        .set_directory(text(view, FOLDER))
+        .add_filter(
+            "Audio and media files",
+            audio_capture::TRANSCRIPTION_EXTENSIONS,
+        )
+        .pick_files();
+    let Some(files) = files.filter(|files| !files.is_empty()) else {
+        return;
+    };
+    if let Err(error) = launch_transcription(&files) {
+        unsafe {
+            MessageBoxW(
+                view.hwnd as Hwnd,
+                wide(&error).as_ptr(),
+                wide("Could not open transcription").as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
+        }
+    }
 }
 
 fn retain_live_selections(
@@ -119,6 +177,8 @@ pub struct Controller {
     session: Option<record::Session>,
     paused: bool,
     status: String,
+    discovery_warning: Option<String>,
+    marker_count: u64,
     settings_load_failed: bool,
 }
 
@@ -127,7 +187,7 @@ impl Controller {
         let (settings, status, settings_load_failed) = match prefs::load() {
             Ok(value) => (value, String::new(), false),
             Err(error) => (
-                prefs::Settings::default(),
+                prefs::Settings::historical_defaults(),
                 format!("{error}. Settings will not be overwritten."),
                 true,
             ),
@@ -144,6 +204,8 @@ impl Controller {
             session: None,
             paused: false,
             status,
+            discovery_warning: None,
+            marker_count: 0,
             settings_load_failed,
         };
         this.refresh();
@@ -152,8 +214,9 @@ impl Controller {
     }
 
     fn refresh(&mut self) {
-        match sources::processes() {
-            Ok(processes) => {
+        match sources::processes_with_warnings() {
+            Ok((processes, warning)) => {
+                self.discovery_warning = warning;
                 let expired = retain_live_selections(
                     &mut self.selected,
                     &self.processes,
@@ -168,7 +231,10 @@ impl Controller {
                     );
                 }
             }
-            Err(error) => self.status = format!("Could not list programs: {error}"),
+            Err(error) => {
+                self.discovery_warning = None;
+                self.status = format!("Could not list programs: {error}");
+            }
         }
         match sources::devices() {
             Ok((inputs, outputs)) => {
@@ -214,6 +280,7 @@ impl Controller {
         msg(view, PROCESS_LIST, LB_RESETCONTENT, 0, 0);
         for (index, process) in self.processes.iter().enumerate() {
             if self.settings.active_only
+                && self.discovery_warning.is_none()
                 && !process.active
                 && !self.selected.contains_key(&process.pid)
             {
@@ -281,10 +348,33 @@ impl Controller {
         }
     }
 
-    pub fn sync_full(&mut self, view: &View) {
-        if self.settings.format == "mp3" && self.settings.channels == 1 {
-            self.settings.mp3_kbps = 128;
-        }
+    pub fn initialize(&mut self, view: &View) {
+        let mut profiles: Vec<_> = prefs::ENCODING_PROFILES.iter().map(|p| p.label).collect();
+        profiles.push("Custom");
+        combo(view, PROFILE, &profiles, 0);
+        combo(
+            view,
+            FORMAT,
+            &[
+                "WAV",
+                "MP3",
+                "Opus",
+                "FLAC",
+                "Opus speech DTX (experimental)",
+            ],
+            0,
+        );
+        combo(
+            view,
+            SAMPLE,
+            &["Auto (48000 Hz)", "16000 Hz", "44100 Hz", "48000 Hz"],
+            0,
+        );
+        combo(view, CHANNEL, &["Mono", "Stereo"], 0);
+        self.sync_full(view);
+    }
+
+    fn sync_full(&mut self, view: &View) {
         let presets = prefs::presets().unwrap_or_default();
         let old_preset = text(view, PRESET);
         combo(view, PRESET, &presets, 0);
@@ -294,47 +384,12 @@ impl Controller {
         set_checked(view, SYSTEM, self.settings.system);
         set_checked(view, MONITOR_ONLY, self.settings.monitor_only);
         set_checked(view, SILENCE, self.settings.skip_silence);
-        combo(
-            view,
-            FORMAT,
-            &strings(&["WAV", "MP3", "Opus", "FLAC"]),
-            ["wav", "mp3", "opus", "flac"]
-                .iter()
-                .position(|s| *s == self.settings.format)
-                .unwrap_or(0),
-        );
-        self.codec(view);
-        let rates = strings(&["Auto (48000 Hz)", "16000 Hz", "44100 Hz", "48000 Hz"]);
-        combo(
-            view,
-            SAMPLE,
-            &rates,
-            [0, 16000, 44100, 48000]
-                .iter()
-                .position(|n| *n == self.settings.wav_rate)
-                .unwrap_or(0),
-        );
-        combo(
-            view,
-            CHANNEL,
-            &strings(&["Mono", "Stereo"]),
-            usize::from(self.settings.channels == 2),
-        );
+        self.sync_encoding(view);
         Self::device_combo(view, MIC, &self.inputs, &self.settings.mic);
         Self::device_combo(view, MONITOR, &self.outputs, &self.settings.monitor);
-        let gain: Vec<_> = (0..=10).map(|n| format!("{}%", n * 10)).collect();
-        combo(
-            view,
-            APP_GAIN,
-            &gain,
-            (self.settings.app_gain * 10.0).round() as usize,
-        );
-        combo(
-            view,
-            MIC_GAIN,
-            &gain,
-            (self.settings.mic_gain * 10.0).round() as usize,
-        );
+        let gain: Vec<_> = (0..=100).map(|n| format!("{n}%")).collect();
+        combo(view, APP_GAIN, &gain, gain_index(self.settings.app_gain));
+        combo(view, MIC_GAIN, &gain, gain_index(self.settings.mic_gain));
         let mode = match (self.settings.separate, self.settings.mixed) {
             (false, true) => 1,
             (true, true) => 2,
@@ -343,7 +398,7 @@ impl Controller {
         combo(
             view,
             MODE,
-            &strings(&["Separate files", "Combined file", "Both"]),
+            &["Separate files", "Combined file", "Both"],
             mode,
         );
         set_text(view, FOLDER, &self.settings.folder.to_string_lossy());
@@ -351,43 +406,101 @@ impl Controller {
         self.show_status(view);
     }
 
-    fn codec(&self, view: &View) {
-        let (label, choices, value): (&str, Vec<u32>, u32) = match self.settings.format.as_str() {
-            "opus" => (
+    fn sync_encoding(&mut self, view: &View) {
+        if self.settings.format == "mp3" && self.settings.channels == 1 {
+            self.settings.mp3_kbps = 128;
+        }
+        set_selected(
+            view,
+            FORMAT,
+            FORMATS
+                .iter()
+                .position(|s| *s == self.settings.format)
+                .unwrap_or(0),
+        );
+        let rate = if self.settings.format == "wav" {
+            self.settings.wav_rate
+        } else {
+            self.settings.encoding_rate()
+        };
+        set_selected(
+            view,
+            SAMPLE,
+            SAMPLE_RATES.iter().position(|n| *n == rate).unwrap_or(0),
+        );
+        set_selected(view, CHANNEL, usize::from(self.settings.channels == 2));
+        self.sync_bitrate(view);
+        self.sync_profile(view);
+        self.encoding_enabled(view);
+    }
+
+    fn sync_profile(&self, view: &View) {
+        let matched = prefs::matched_encoding_profile(&self.settings);
+        let index = matched
+            .and_then(|matched| prefs::ENCODING_PROFILES.iter().position(|p| p == matched))
+            .unwrap_or(prefs::ENCODING_PROFILES.len());
+        set_selected(view, PROFILE, index);
+        set_text(
+            view,
+            PROFILE_HELP,
+            matched.map_or("Current settings do not match a built-in profile.", |p| {
+                p.summary
+            }),
+        );
+    }
+
+    fn sync_bitrate(&self, view: &View) {
+        let (label, choices, value): (&str, &[u32], u32) = match self.settings.format.as_str() {
+            "opus" | "opus-speech" => (
                 "Opus bitrate (kbps)",
-                vec![24, 32, 48, 64, 96, 128, 192, 256],
+                &OPUS_BITRATES,
                 self.settings.opus_kbps,
             ),
             "mp3" => (
                 "MP3 bitrate (kbps)",
                 if self.settings.channels == 1 {
-                    vec![128]
+                    &MP3_BITRATES[..1]
                 } else {
-                    vec![128, 192, 256, 320]
+                    &MP3_BITRATES
                 },
                 self.settings.mp3_kbps,
             ),
             "flac" => (
                 "FLAC compression level",
-                (0..=8).collect(),
-                self.settings.flac_level as u32,
+                &FLAC_LEVELS,
+                self.settings.flac_level.into(),
             ),
-            _ => ("Bitrate", vec![], 0),
+            _ => {
+                let pcm_kbps =
+                    self.settings.encoding_rate() * u32::from(self.settings.channels) * 16;
+                set_text(view, BITRATE_LABEL, "PCM bitrate (kbps)");
+                combo(
+                    view,
+                    BITRATE,
+                    &[(f64::from(pcm_kbps) / 1000.0).to_string()],
+                    0,
+                );
+                return;
+            }
         };
         set_text(view, BITRATE_LABEL, label);
-        let labels: Vec<String> = choices.iter().map(|v| v.to_string()).collect();
+        let labels: Vec<_> = choices.iter().map(u32::to_string).collect();
         combo(
             view,
             BITRATE,
             &labels,
             choices.iter().position(|n| *n == value).unwrap_or(0),
         );
-        enabled(view, BITRATE, self.session.is_none() && !choices.is_empty());
-        enabled(
-            view,
-            SAMPLE,
-            self.session.is_none() && self.settings.format == "wav",
-        );
+    }
+
+    fn encoding_enabled(&self, view: &View) {
+        let idle = self.session.is_none();
+        let wav = self.settings.format == "wav";
+        enabled(view, PROFILE, idle);
+        enabled(view, FORMAT, idle);
+        enabled(view, BITRATE, idle && !wav);
+        enabled(view, SAMPLE, idle && wav);
+        enabled(view, CHANNEL, idle && self.settings.format != "opus-speech");
     }
 
     fn read_controls(&mut self, view: &View) {
@@ -396,10 +509,13 @@ impl Controller {
         self.settings.monitor_only = checked(view, MONITOR_ONLY);
         self.settings.skip_silence = checked(view, SILENCE);
         self.settings.folder = PathBuf::from(text(view, FOLDER));
-        self.settings.wav_rate = [0, 16000, 44100, 48000][selected(view, SAMPLE).min(3)];
+        if self.settings.format == "wav" {
+            self.settings.wav_rate =
+                SAMPLE_RATES[selected(view, SAMPLE).min(SAMPLE_RATES.len() - 1)];
+        }
         self.settings.channels = if selected(view, CHANNEL) == 0 { 1 } else { 2 };
-        self.settings.app_gain = selected(view, APP_GAIN).min(10) as f32 / 10.0;
-        self.settings.mic_gain = selected(view, MIC_GAIN).min(10) as f32 / 10.0;
+        self.settings.app_gain = gain_value(selected(view, APP_GAIN));
+        self.settings.mic_gain = gain_value(selected(view, MIC_GAIN));
         let mode = selected(view, MODE).min(2);
         self.settings.separate = mode != 1;
         self.settings.mixed = mode != 0;
@@ -424,8 +540,6 @@ impl Controller {
             REFRESH,
             FILTER,
             SYSTEM,
-            FORMAT,
-            CHANNEL,
             MIC,
             MONITOR,
             MONITOR_ONLY,
@@ -441,8 +555,14 @@ impl Controller {
         enabled(view, START, !running);
         enabled(view, STOP, running);
         enabled(view, PAUSE, running);
+        enabled(view, MARK, running && !self.settings.monitor_only);
+        enabled(
+            view,
+            TRANSCRIBE_FILES,
+            accepts_command(TRANSCRIBE_FILES, running),
+        );
         set_text(view, PAUSE, if self.paused { "Resume" } else { "Pause" });
-        self.codec(view);
+        self.encoding_enabled(view);
     }
 
     fn show_status(&self, view: &View) {
@@ -458,6 +578,16 @@ impl Controller {
                 "{status}   Unavailable or ambiguous programs: {}",
                 self.missing.join(", ")
             )
+        };
+        let status = if self.session.is_some() && self.marker_count > 0 {
+            format!("{status}   Marker {} queued.", self.marker_count)
+        } else {
+            status
+        };
+        let status = if let Some(warning) = &self.discovery_warning {
+            format!("{status}   Audio activity list incomplete: {warning}. Showing all programs.")
+        } else {
+            status
         };
         set_text(view, STATUS, &status);
     }
@@ -509,16 +639,11 @@ impl Controller {
                 return Err("The selected monitor output is unavailable.".into());
             }
         }
-        let rate = if self.settings.format == "wav" && self.settings.wav_rate != 0 {
-            self.settings.wav_rate
-        } else {
-            48000
-        };
         let config = record::Config {
             inputs,
             folder: self.settings.folder.clone(),
             format: self.settings.format.clone(),
-            rate,
+            rate: self.settings.encoding_rate(),
             channels: self.settings.channels,
             bitrate: if self.settings.format == "mp3" {
                 self.settings.mp3_kbps
@@ -537,6 +662,7 @@ impl Controller {
             prefs::save(&self.settings)?;
         }
         self.session = Some(record::Session::start(config)?);
+        self.marker_count = 0;
         self.paused = false;
         Ok(())
     }
@@ -547,36 +673,48 @@ impl Controller {
             self.show_status(view);
             return;
         }
-        if self.session.is_some() && ![PAUSE, STOP].contains(&id) {
+        if !accepts_command(id, self.session.is_some()) {
             return;
         }
-        if id == FORMAT && notification == CBN_SELCHANGE {
-            self.settings.format =
-                ["wav", "mp3", "opus", "flac"][selected(view, FORMAT).min(3)].into();
-            if self.settings.format == "mp3" && self.settings.channels == 1 {
-                self.settings.mp3_kbps = 128;
+        if id == PROFILE && notification == CBN_SELCHANGE {
+            let index = msg(view, PROFILE, CB_GETCURSEL, 0, 0);
+            if let Some(profile) = prefs::ENCODING_PROFILES.get(index as usize) {
+                profile.apply(&mut self.settings);
+                self.sync_encoding(view);
+            } else {
+                // Custom describes an unmatched encoding and does not apply settings.
+                self.sync_profile(view);
             }
-            self.codec(view);
+        } else if id == FORMAT && notification == CBN_SELCHANGE {
+            select_format(&mut self.settings, selected(view, FORMAT));
+            self.sync_encoding(view);
         } else if id == BITRATE && notification == CBN_SELCHANGE {
             let n = selected(view, BITRATE);
             match self.settings.format.as_str() {
-                "opus" => self.settings.opus_kbps = [24, 32, 48, 64, 96, 128, 192, 256][n.min(7)],
+                "opus" | "opus-speech" => {
+                    self.settings.opus_kbps = OPUS_BITRATES[n.min(OPUS_BITRATES.len() - 1)]
+                }
                 "mp3" => {
                     self.settings.mp3_kbps = if self.settings.channels == 1 {
-                        128
+                        MP3_BITRATES[0]
                     } else {
-                        [128, 192, 256, 320][n.min(3)]
+                        MP3_BITRATES[n.min(MP3_BITRATES.len() - 1)]
                     }
                 }
-                "flac" => self.settings.flac_level = n.min(8) as u8,
+                "flac" => {
+                    self.settings.flac_level = FLAC_LEVELS[n.min(FLAC_LEVELS.len() - 1)] as u8
+                }
                 _ => {}
             }
+            self.sync_profile(view);
+        } else if id == SAMPLE && notification == CBN_SELCHANGE && self.settings.format == "wav" {
+            self.settings.wav_rate =
+                SAMPLE_RATES[selected(view, SAMPLE).min(SAMPLE_RATES.len() - 1)];
+            self.sync_bitrate(view);
+            self.sync_profile(view);
         } else if id == CHANNEL && notification == CBN_SELCHANGE {
-            self.read_controls(view);
-            if self.settings.format == "mp3" && self.settings.channels == 1 {
-                self.settings.mp3_kbps = 128;
-            }
-            self.codec(view);
+            self.settings.channels = if selected(view, CHANNEL) == 0 { 1 } else { 2 };
+            self.sync_encoding(view);
         } else if id == FILTER && notification == BN_CLICKED {
             self.settings.active_only = checked(view, FILTER);
             self.process_list(view);
@@ -592,34 +730,37 @@ impl Controller {
                 self.settings.folder = path;
                 set_text(view, FOLDER, &self.settings.folder.to_string_lossy());
             }
+        } else if id == TRANSCRIBE_FILES && notification == BN_CLICKED {
+            transcribe_files(view);
+            return;
         } else if [SAVE, LOAD, DELETE].contains(&id) && notification == BN_CLICKED {
             self.read_controls(view);
             let name = text(view, PRESET);
             let result = if id == SAVE {
                 self.save_names();
-                prefs::save_preset(&name, &self.settings).map(|_| "Preset saved".to_owned())
+                prefs::save_preset(&name, &self.settings).map(|_| "Setup saved".to_owned())
             } else if id == LOAD {
                 prefs::load_preset(&name).map(|settings| {
                     self.settings = settings;
                     self.missing = self.settings.process_names.clone();
                     self.selected.clear();
                     self.resolve_names();
-                    "Preset loaded".to_owned()
+                    "Setup loaded".to_owned()
                 })
             } else {
-                let question = format!("Delete preset \"{name}\"?");
+                let question = format!("Delete setup \"{name}\"?");
                 if unsafe {
                     MessageBoxW(
                         view.hwnd as Hwnd,
                         wide(&question).as_ptr(),
-                        wide("Delete preset").as_ptr(),
+                        wide("Delete setup").as_ptr(),
                         0x24,
                     )
                 } != 6
                 {
                     return;
                 }
-                prefs::delete_preset(&name).map(|_| "Preset deleted".to_owned())
+                prefs::delete_preset(&name).map(|_| "Setup deleted".to_owned())
             };
             self.status = result.unwrap_or_else(|e| e);
             self.sync_full(view);
@@ -649,7 +790,7 @@ impl Controller {
             }
             if self.session.is_some() {
                 unsafe {
-                    SetTimer(view.hwnd as Hwnd, SESSION_TIMER, 500, ptr::null());
+                    SetTimer(view.hwnd as Hwnd, SESSION_TIMER, 250, ptr::null());
                 }
             }
             self.state_controls(view);
@@ -659,6 +800,21 @@ impl Controller {
                 session.pause(self.paused);
             }
             self.state_controls(view);
+        } else if id == MARK && notification == BN_CLICKED {
+            if let Some(session) = &self.session {
+                let number = self.marker_count + 1;
+                match session.mark(&format!("Marker {number}")) {
+                    Ok(()) => self.marker_count = number,
+                    Err(error) => unsafe {
+                        MessageBoxW(
+                            view.hwnd as Hwnd,
+                            wide(&error).as_ptr(),
+                            wide("Could not add marker").as_ptr(),
+                            0x10,
+                        );
+                    },
+                }
+            }
         } else if id == STOP && notification == BN_CLICKED {
             self.stop(view);
         }
@@ -676,6 +832,7 @@ impl Controller {
             };
         }
         self.paused = false;
+        set_levels(view, "Source levels appear while recording.");
         self.state_controls(view);
     }
 
@@ -686,6 +843,9 @@ impl Controller {
             .is_some_and(|session| session.is_finished())
         {
             self.stop(view);
+        }
+        if let Some(session) = &self.session {
+            set_levels(view, &session.levels());
         }
         self.show_status(view);
     }
@@ -724,6 +884,15 @@ impl Controller {
 mod tests {
     use super::*;
 
+    #[test]
+    fn transcription_is_available_only_without_an_active_session() {
+        assert!(accepts_command(TRANSCRIBE_FILES, false));
+        assert!(!accepts_command(TRANSCRIBE_FILES, true));
+        for id in [PAUSE, STOP, MARK] {
+            assert!(accepts_command(id, true));
+        }
+    }
+
     fn process(pid: u32, name: &str) -> sources::Process {
         sources::Process {
             pid,
@@ -731,6 +900,34 @@ mod tests {
             title: String::new(),
             active: true,
         }
+    }
+
+    #[test]
+    fn gain_control_preserves_legacy_percentages() {
+        for percent in 0..=100 {
+            let saved = percent as f32 / 100.0;
+            let read_back = gain_value(gain_index(saved));
+            assert!((saved - read_back).abs() < f32::EPSILON);
+        }
+        assert_eq!(gain_index(0.34), 34);
+        assert!((gain_value(34) - 0.34).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn speech_format_selects_mono_and_preserves_bitrate() {
+        let mut settings = prefs::Settings {
+            format: "opus".into(),
+            channels: 2,
+            opus_kbps: 32,
+            ..Default::default()
+        };
+        select_format(&mut settings, 4);
+        assert_eq!(settings.format, "opus-speech");
+        assert_eq!(settings.channels, 1);
+        assert_eq!(settings.opus_kbps, 32);
+        select_format(&mut settings, 2);
+        assert_eq!(settings.format, "opus");
+        assert_eq!(settings.opus_kbps, 32);
     }
 
     #[test]

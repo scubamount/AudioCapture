@@ -85,35 +85,191 @@ pub fn devices() -> Result<(Vec<(String, String)>, Vec<(String, String)>), Strin
     })
 }
 
-fn active_processes() -> Result<HashSet<u32>, String> {
+fn process_parents() -> Result<HashMap<u32, u32>, String> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
+        .map_err(|error| format!("Process enumeration failed: {error}"))?;
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut parents = HashMap::new();
+    unsafe {
+        let mut result = Process32FirstW(snapshot, &mut entry);
+        if let Err(error) = &result {
+            let _ = CloseHandle(snapshot);
+            return Err(format!("Process enumeration failed: {error}"));
+        }
+        while result.is_ok() {
+            parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+            result = Process32NextW(snapshot, &mut entry);
+        }
+        let _ = CloseHandle(snapshot);
+    }
+    Ok(parents)
+}
+
+fn overlapping_processes(
+    selected: &[(String, u32)],
+    parents: &HashMap<u32, u32>,
+) -> Option<(String, String)> {
+    for (index, (name, pid)) in selected.iter().enumerate() {
+        for (other_name, other_pid) in selected.iter().skip(index + 1) {
+            for (ancestor, descendant) in [(*pid, *other_pid), (*other_pid, *pid)] {
+                let mut current = descendant;
+                let mut visited = HashSet::new();
+                while visited.insert(current) {
+                    if current == ancestor {
+                        return Some((name.clone(), other_name.clone()));
+                    }
+                    let Some(&parent) = parents.get(&current) else {
+                        break;
+                    };
+                    if parent == 0 || parent == current {
+                        break;
+                    }
+                    current = parent;
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the render endpoint and reject known duplicate or feedback routes.
+///
+/// This runs before output files are opened. The caller can select overlapping
+/// tracks in separate-only mode, but must not combine them or monitor them.
+pub fn validate_routes(
+    inputs: &mut [(String, crate::capture::Input, f32)],
+    mixes: bool,
+    monitor_id: Option<&str>,
+) -> Result<(), String> {
+    use crate::capture::Input;
+
+    let selected: Vec<(String, u32)> = inputs
+        .iter()
+        .filter_map(|(name, input, _)| match input {
+            Input::Process(pid) | Input::SelectedProcess { pid, .. } => Some((name.clone(), *pid)),
+            _ => None,
+        })
+        .collect();
+    let has_system = inputs
+        .iter()
+        .any(|(_, input, _)| matches!(input, Input::System | Input::SystemEndpoint(_)));
+
+    if mixes && has_system && !selected.is_empty() {
+        return Err(format!(
+            "System audio can include {}. Choose separate files or remove one source before mixing or monitoring.",
+            selected[0].0
+        ));
+    }
+    if mixes && selected.len() > 1 {
+        let parents = process_parents()?;
+        for (name, pid) in &selected {
+            if !parents.contains_key(pid) {
+                return Err(format!(
+                    "Cannot determine the process tree for {name}. Refresh and select it again."
+                ));
+            }
+        }
+        if let Some((first, second)) = overlapping_processes(&selected, &parents) {
+            return Err(format!(
+                "{first} and {second} have overlapping process trees. Choose separate files or remove one source."
+            ));
+        }
+    }
+
+    let needs_default = inputs
+        .iter()
+        .any(|(_, input, _)| matches!(input, Input::System));
+    let endpoint = if needs_default {
+        Some(in_mta(|| {
+            DeviceEnumerator::new()
+                .and_then(|enumerator| enumerator.get_default_device(Direction::Render))
+                .and_then(|device| device.get_id())
+                .map_err(|error| format!("Cannot identify the system playback device: {error}"))
+        })?)
+    } else {
+        None
+    };
+    for (_, input, _) in inputs.iter() {
+        let system_id = match input {
+            Input::System => endpoint.as_deref(),
+            Input::SystemEndpoint(id) => Some(id.as_str()),
+            _ => None,
+        };
+        if system_id.is_some_and(str::is_empty) {
+            return Err("Cannot identify the system playback device.".into());
+        }
+        if let (Some(system_id), Some(monitor_id)) = (system_id, monitor_id) {
+            if monitor_id.is_empty() {
+                return Err("Cannot identify the monitor playback device.".into());
+            }
+            if system_id.eq_ignore_ascii_case(monitor_id) {
+                return Err(
+                    "System audio cannot be monitored through the same playback device.".into(),
+                );
+            }
+        }
+    }
+    if let Some(endpoint) = endpoint {
+        for (_, input, _) in inputs.iter_mut() {
+            if matches!(input, Input::System) {
+                *input = Input::SystemEndpoint(endpoint.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn active_processes() -> Result<(HashSet<u32>, bool), String> {
     in_mta(|| {
         let enumerator = DeviceEnumerator::new().map_err(|e| e.to_string())?;
         let devices = enumerator
             .get_device_collection(Direction::Render)
             .map_err(|e| e.to_string())?;
         let mut active = HashSet::new();
+        let mut incomplete = false;
         for index in 0..devices.get_nbr_devices().map_err(|e| e.to_string())? {
-            let device = devices
+            let sessions = match devices
                 .get_device_at_index(index)
-                .map_err(|e| e.to_string())?;
-            let manager = device
-                .get_iaudiosessionmanager()
-                .map_err(|e| e.to_string())?;
-            let sessions = manager
-                .get_audiosessionenumerator()
-                .map_err(|e| e.to_string())?;
-            for session_index in 0..sessions.get_count().map_err(|e| e.to_string())? {
-                let session = sessions
-                    .get_session(session_index)
-                    .map_err(|e| e.to_string())?;
-                if matches!(session.get_state(), Ok(SessionState::Active)) {
-                    if let Ok(pid) = session.get_process_id() {
-                        active.insert(pid);
+                .and_then(|device| device.get_iaudiosessionmanager())
+                .and_then(|manager| manager.get_audiosessionenumerator())
+            {
+                Ok(sessions) => sessions,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            };
+            let count = match sessions.get_count() {
+                Ok(count) => count,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            };
+            for session_index in 0..count {
+                let session = match sessions.get_session(session_index) {
+                    Ok(session) => session,
+                    Err(_) => {
+                        incomplete = true;
+                        continue;
                     }
+                };
+                match session.get_state() {
+                    Ok(SessionState::Active) => match session.get_process_id() {
+                        Ok(pid) => {
+                            active.insert(pid);
+                        }
+                        Err(_) => incomplete = true,
+                    },
+                    Ok(_) => {}
+                    Err(_) => incomplete = true,
                 }
             }
         }
-        Ok(active)
+        Ok((active, incomplete))
     })
 }
 
@@ -139,7 +295,30 @@ unsafe extern "system" fn collect_window(hwnd: HWND, data: LPARAM) -> BOOL {
 }
 
 pub fn processes() -> Result<Vec<Process>, String> {
-    let active = active_processes()?;
+    processes_with_warnings().map(|(processes, _)| processes)
+}
+
+fn activity_with_warning(
+    result: Result<(HashSet<u32>, bool), String>,
+) -> (HashSet<u32>, Option<String>) {
+    match result {
+        Ok((active, false)) => (active, None),
+        Ok((active, true)) => (
+            active,
+            Some("Audio activity information is incomplete".to_string()),
+        ),
+        Err(error) => (
+            HashSet::new(),
+            Some(format!(
+                "Audio activity information is unavailable: {error}"
+            )),
+        ),
+    }
+}
+
+/// Enumerate processes even when some audio-session information is unavailable.
+pub fn processes_with_warnings() -> Result<(Vec<Process>, Option<String>), String> {
+    let (active, warning) = activity_with_warning(active_processes());
     let mut titles: HashMap<u32, String> = HashMap::new();
     unsafe {
         EnumWindows(Some(collect_window), LPARAM(&mut titles as *mut _ as isize))
@@ -201,5 +380,70 @@ pub fn processes() -> Result<Vec<Process>, String> {
             .cmp(&b.name.to_lowercase())
             .then(a.pid.cmp(&b.pid))
     });
-    Ok(processes)
+    Ok((processes, warning))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capture::Input;
+
+    #[test]
+    fn selected_process_tree_overlap_is_detected() {
+        let parents = HashMap::from([(3, 2), (2, 1), (8, 7), (7, 0)]);
+        let selected = vec![("root".into(), 1), ("grandchild".into(), 3)];
+        assert_eq!(
+            overlapping_processes(&selected, &parents),
+            Some(("root".into(), "grandchild".into()))
+        );
+        let siblings = vec![("first".into(), 2), ("other".into(), 8)];
+        assert_eq!(overlapping_processes(&siblings, &parents), None);
+        let duplicate = vec![("first".into(), 2), ("again".into(), 2)];
+        assert!(overlapping_processes(&duplicate, &parents).is_some());
+    }
+
+    #[test]
+    fn process_parent_cycles_do_not_loop() {
+        let parents = HashMap::from([(2, 3), (3, 2)]);
+        assert!(overlapping_processes(&[("a".into(), 1), ("b".into(), 2)], &parents).is_none());
+    }
+
+    #[test]
+    fn system_and_process_mix_is_rejected_before_device_enumeration() {
+        let mut inputs = [
+            ("System".into(), Input::System, 1.0),
+            ("App".into(), Input::Process(42), 1.0),
+        ];
+        assert!(
+            validate_routes(&mut inputs, true, None)
+                .unwrap_err()
+                .contains("App")
+        );
+        assert!(matches!(inputs[0].1, Input::System));
+    }
+
+    #[test]
+    fn same_endpoint_monitor_is_rejected_but_separate_tracks_are_allowed() {
+        let mut inputs = [
+            (
+                "System".into(),
+                Input::SystemEndpoint("DEVICE-ID".into()),
+                1.0,
+            ),
+            ("App".into(), Input::Process(42), 1.0),
+        ];
+        assert!(validate_routes(&mut inputs, false, None).is_ok());
+        assert!(validate_routes(&mut inputs, false, Some("device-id")).is_err());
+        assert!(validate_routes(&mut inputs, false, Some("other-device")).is_ok());
+    }
+
+    #[test]
+    fn activity_failures_are_reported_without_discarding_usable_sessions() {
+        let (active, warning) = activity_with_warning(Ok((HashSet::from([123]), true)));
+        assert!(active.contains(&123));
+        assert!(warning.unwrap().contains("incomplete"));
+        let (active, warning) = activity_with_warning(Err("endpoint vanished".into()));
+        assert!(active.is_empty());
+        assert!(warning.unwrap().contains("endpoint vanished"));
+    }
 }

@@ -44,6 +44,12 @@ if errorlevel 1 (
 	exit /b 1
 )
 
+copy /Y "docs\legacy\README.md" "package\README.md" >nul
+if errorlevel 1 (
+	echo ERROR: Failed to copy the C++ recorder guide.
+	exit /b 1
+)
+
 echo Libraries are statically linked - no DLLs needed.
 
 exit /b 0

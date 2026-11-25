@@ -9,6 +9,7 @@ use opus::{Application, Bitrate, Channels, Encoder};
 
 const SAMPLE_RATE: u32 = 48_000;
 const FRAME_SAMPLES: usize = 960;
+const CHECKPOINT_FRAMES: u64 = SAMPLE_RATE as u64;
 const SERIAL: u32 = 0x6175_6469;
 
 pub struct OpusWriter {
@@ -24,6 +25,22 @@ pub struct OpusWriter {
 
 impl OpusWriter {
     pub fn open(path: &Path, channels: u16, bitrate: u32) -> Result<Self, String> {
+        Self::open_profile(path, channels, bitrate, false)
+    }
+
+    pub fn open_speech(path: &Path, channels: u16, bitrate: u32) -> Result<Self, String> {
+        if channels != 1 {
+            return Err("Opus speech profile requires mono audio".into());
+        }
+        Self::open_profile(path, channels, bitrate, true)
+    }
+
+    fn open_profile(
+        path: &Path,
+        channels: u16,
+        bitrate: u32,
+        speech: bool,
+    ) -> Result<Self, String> {
         let channel_mode = match channels {
             1 => Channels::Mono,
             2 => Channels::Stereo,
@@ -33,11 +50,21 @@ impl OpusWriter {
             .checked_mul(1000)
             .and_then(|value| i32::try_from(value).ok())
             .ok_or_else(|| "Invalid Opus bitrate".to_string())?;
-        let mut encoder = Encoder::new(SAMPLE_RATE, channel_mode, Application::Audio)
+        let application = if speech {
+            Application::Voip
+        } else {
+            Application::Audio
+        };
+        let mut encoder = Encoder::new(SAMPLE_RATE, channel_mode, application)
             .map_err(|error| format!("Cannot initialize Opus: {error}"))?;
         encoder
             .set_bitrate(Bitrate::Bits(bits))
             .map_err(|error| format!("Cannot set Opus bitrate: {error}"))?;
+        if speech {
+            encoder
+                .set_dtx(true)
+                .map_err(|error| format!("Cannot enable Opus speech mode: {error}"))?;
+        }
         let pre_skip = u16::try_from(
             encoder
                 .get_lookahead()
@@ -102,18 +129,30 @@ impl OpusWriter {
     }
 
     fn encode_buffer(&mut self) -> Result<(), String> {
-        let mut packet = vec![0; 4000];
+        let mut packet = [0u8; 4000];
         let size = self
             .encoder
             .encode_float(&self.buffer, &mut packet)
             .map_err(|error| format!("Opus encoding failed: {error}"))?;
-        packet.truncate(size);
+        let packet = packet[..size].to_vec();
         self.buffer.clear();
         self.encoded_frames += FRAME_SAMPLES as u64;
         if let Some((previous, granule)) = self.pending.replace((packet, self.encoded_frames)) {
+            let checkpoint = self.encoded_frames % CHECKPOINT_FRAMES == 0;
+            let end = if checkpoint {
+                PacketWriteEndInfo::EndPage
+            } else {
+                PacketWriteEndInfo::NormalPacket
+            };
             self.output
-                .write_packet(previous, SERIAL, PacketWriteEndInfo::NormalPacket, granule)
+                .write_packet(previous, SERIAL, end, granule)
                 .map_err(|error| format!("Cannot write Opus data: {error}"))?;
+            if checkpoint {
+                self.output
+                    .inner_mut()
+                    .flush()
+                    .map_err(|error| format!("Cannot flush Opus checkpoint: {error}"))?;
+            }
         }
         Ok(())
     }
@@ -165,6 +204,72 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_recording_has_a_decodable_prefix() {
+        const CHILD_PATH: &str = "AUDIO_CAPTURE_OPUS_INTERRUPTION_PATH";
+        if let Some(path) = std::env::var_os(CHILD_PATH) {
+            let mut writer = OpusWriter::open(Path::new(&path), 1, 32).unwrap();
+            writer.write(&tone(SAMPLE_RATE as usize * 4 + 301)).unwrap();
+            std::process::exit(0);
+        }
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            eprintln!("ffmpeg unavailable; external decoding check skipped");
+            return;
+        }
+        let path = temporary_path();
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "opus_writer::tests::interrupted_recording_has_a_decodable_prefix",
+            ])
+            .env(CHILD_PATH, &path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let decoded = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(&path)
+            .args(["-f", "f32le", "-acodec", "pcm_f32le", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            decoded.status.success(),
+            "interrupted stream was not decodable: {}",
+            String::from_utf8_lossy(&decoded.stderr)
+        );
+        let decoded_frames = decoded.stdout.len() / 4;
+        let accepted = SAMPLE_RATE as usize * 4 + 301;
+        let mut encoder = Encoder::new(SAMPLE_RATE, Channels::Mono, Application::Audio).unwrap();
+        let allowed_loss =
+            SAMPLE_RATE as usize + FRAME_SAMPLES * 2 + encoder.get_lookahead().unwrap() as usize;
+        assert!(decoded_frames >= accepted - allowed_loss);
+        assert!(decoded_frames <= accepted);
+        assert!(
+            decoded
+                .stdout
+                .chunks_exact(4)
+                .any(|sample| { f32::from_le_bytes(sample.try_into().unwrap()).abs() > 0.05 })
+        );
+        let complete_path = temporary_path();
+        let mut complete = OpusWriter::open(&complete_path, 1, 32).unwrap();
+        complete.write(&tone(accepted)).unwrap();
+        complete.finish().unwrap();
+        let complete_audio = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(&complete_path)
+            .args(["-f", "f32le", "-acodec", "pcm_f32le", "-"])
+            .output()
+            .unwrap();
+        assert!(complete_audio.status.success());
+        assert_eq!(complete_audio.stdout.len(), accepted * 4);
+        assert_eq!(
+            decoded.stdout,
+            complete_audio.stdout[..decoded.stdout.len()]
+        );
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(complete_path).unwrap();
+    }
+
+    #[test]
     fn output_is_decodable_and_preserves_sample_count() {
         if Command::new("ffmpeg").arg("-version").output().is_err() {
             eprintln!("ffmpeg unavailable; external decoding check skipped");
@@ -209,5 +314,60 @@ mod tests {
         assert!(before.len() < std::fs::metadata(&high).unwrap().len() as usize);
         std::fs::remove_file(low).unwrap();
         std::fs::remove_file(high).unwrap();
+    }
+
+    #[test]
+    fn speech_profile_reduces_pause_storage_without_changing_duration() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            eprintln!("ffmpeg unavailable; external decoding check skipped");
+            return;
+        }
+        let mut samples = Vec::new();
+        for _ in 0..2 {
+            samples.extend(tone(SAMPLE_RATE as usize));
+            samples.resize(samples.len() + SAMPLE_RATE as usize * 5 * 2, 0.0);
+        }
+        let expected_frames = samples.len() / 2;
+        for bitrate in [24, 32] {
+            let normal_path = temporary_path();
+            let speech_path = temporary_path();
+            for (path, speech) in [(&normal_path, false), (&speech_path, true)] {
+                let mut writer = if speech {
+                    OpusWriter::open_speech(path, 1, bitrate).unwrap()
+                } else {
+                    OpusWriter::open(path, 1, bitrate).unwrap()
+                };
+                writer.write(&samples).unwrap();
+                writer.finish().unwrap();
+                let decoded = Command::new("ffmpeg")
+                    .args(["-v", "error", "-i"])
+                    .arg(path)
+                    .args(["-f", "f32le", "-acodec", "pcm_f32le", "-"])
+                    .output()
+                    .unwrap();
+                assert!(
+                    decoded.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&decoded.stderr)
+                );
+                assert_eq!(decoded.stdout.len() / 4, expected_frames);
+                assert!(
+                    decoded.stdout.chunks_exact(4).any(|sample| {
+                        f32::from_le_bytes(sample.try_into().unwrap()).abs() > 0.05
+                    })
+                );
+            }
+            let normal_bytes = std::fs::metadata(&normal_path).unwrap().len();
+            let speech_bytes = std::fs::metadata(&speech_path).unwrap().len();
+            eprintln!(
+                "{bitrate} kbps, gated fixture: regular {normal_bytes} bytes; speech {speech_bytes} bytes"
+            );
+            assert!(
+                speech_bytes < normal_bytes,
+                "speech profile used {speech_bytes} bytes, regular Opus used {normal_bytes}"
+            );
+            std::fs::remove_file(normal_path).unwrap();
+            std::fs::remove_file(speech_path).unwrap();
+        }
     }
 }

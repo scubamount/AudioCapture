@@ -74,7 +74,37 @@ impl<'a, F: Fn(i32) -> bool> Rows<'a, F> {
 fn positions<F: Fn(i32) -> bool>(width: i32, visible: &F) -> (Vec<(i32, Rect)>, i32) {
     let mut row = Rows::new(width, visible);
 
-    row.add(PRESET_LABEL, 52, 25);
+    row.add(PROFILE_LABEL, 115, 26);
+    row.add(PROFILE, PROFILE_WIDTH, 26);
+    row.next();
+    row.fill(PROFILE_HELP, 0, 100, if width < 340 { 44 } else { 23 });
+    row.next();
+
+    row.add(FORMAT_LABEL, 92, 26);
+    row.add(FORMAT, 235, 26);
+    if width < 570 {
+        row.next();
+    }
+    row.add(CHANNEL_LABEL, 92, 26);
+    row.add(CHANNEL, 105, 26);
+    row.next();
+    row.add(BITRATE_LABEL, 155, 26);
+    row.add(BITRATE, 130, 26);
+    if width < 600 {
+        row.next();
+    }
+    row.add(SAMPLE_LABEL, 122, 26);
+    row.add(SAMPLE, 145, 26);
+    row.next();
+
+    row.add(START, 110, 30);
+    row.add(PAUSE, 110, 30);
+    row.add(STOP, 110, 30);
+    row.add(MARK, 110, 30);
+    row.add(TRANSCRIBE_FILES, 150, 30);
+    row.next();
+
+    row.add(PRESET_LABEL, 82, 25);
     row.add(PRESET, 185, 25);
     row.add(SAVE, 94, 25);
     row.add(LOAD, 94, 25);
@@ -89,19 +119,6 @@ fn positions<F: Fn(i32) -> bool>(width: i32, visible: &F) -> (Vec<(i32, Rect)>, 
     let checkbox_height = if width < 320 { 44 } else { 26 };
     row.add(FILTER, 260, checkbox_height);
     row.add(SYSTEM, 180, checkbox_height);
-    row.next();
-
-    row.add(FORMAT_LABEL, 92, 26);
-    row.add(FORMAT, 140, 26);
-    row.next();
-    row.add(BITRATE_LABEL, 165, 26);
-    row.add(BITRATE, 130, 26);
-    row.next();
-    row.add(SAMPLE_LABEL, 165, 26);
-    row.add(SAMPLE, 145, 26);
-    row.next();
-    row.add(CHANNEL_LABEL, 92, 26);
-    row.add(CHANNEL, 205, 26);
     row.next();
 
     row.add(MIC_LABEL, 110, 26);
@@ -126,9 +143,9 @@ fn positions<F: Fn(i32) -> bool>(width: i32, visible: &F) -> (Vec<(i32, Rect)>, 
     row.fill(FOLDER, 205, 170, 26);
     row.add(BROWSE, 90, 26);
     row.next();
-    row.add(START, 110, 30);
-    row.add(PAUSE, 110, 30);
-    row.add(STOP, 110, 30);
+    row.add(LEVELS_LABEL, 130, 23);
+    row.next();
+    row.fill(LEVELS, 0, 100, 96);
     row.next();
     row.fill(STATUS, 0, 100, 60);
     row.next();
@@ -179,6 +196,22 @@ mod tests {
     }
 
     #[test]
+    fn encoding_and_recording_controls_are_above_source_configuration() {
+        for width in [240, 480, 768, 1024] {
+            let (rects, _) = positions(width, &|_| true);
+            let rect = |control| rects.iter().find(|(id, _)| *id == control).unwrap().1;
+            assert!(rect(PROFILE).y + rect(PROFILE).height <= rect(FORMAT).y);
+            assert!(rect(PROFILE_HELP).y + rect(PROFILE_HELP).height <= rect(FORMAT).y);
+            for control in [PROFILE, FORMAT, BITRATE, SAMPLE, CHANNEL, START, STOP] {
+                assert!(
+                    rect(control).y + rect(control).height <= rect(PROCESS_LIST).y,
+                    "control {control} must be above the program list at width {width}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn layout_keeps_all_visible_controls_separate_and_reachable() {
         for dpi in [96, 120, 144, 192] {
             for width in [1024, 768, 480] {
@@ -204,7 +237,17 @@ mod tests {
                     let filter = rects.iter().find(|(id, _)| *id == FILTER).unwrap().1;
                     let bitrate = rects.iter().find(|(id, _)| *id == BITRATE).unwrap().1;
                     let stop = rects.iter().find(|(id, _)| *id == STOP).unwrap().1;
+                    let levels = rects.iter().find(|(id, _)| *id == LEVELS).unwrap().1;
+                    let mark = rects.iter().find(|(id, _)| *id == MARK).unwrap().1;
+                    let transcribe = rects
+                        .iter()
+                        .find(|(id, _)| *id == TRANSCRIBE_FILES)
+                        .expect("Transcribe files must have a position")
+                        .1;
                     assert!(!overlaps(filter, bitrate));
+                    assert!(!overlaps(mark, levels));
+                    assert!(transcribe.y >= mark.y && transcribe.y < levels.y);
+                    assert!(levels.height >= 96);
                     // With vertical scrolling any content coordinate can be brought
                     // inside a nonzero-height viewport.
                     assert!(height >= stop.y + stop.height);

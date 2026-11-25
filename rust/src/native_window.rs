@@ -60,6 +60,14 @@ pub const START: i32 = 134;
 pub const PAUSE: i32 = 135;
 pub const STOP: i32 = 136;
 pub const STATUS: i32 = 137;
+pub const LEVELS_LABEL: i32 = 138;
+pub const LEVELS: i32 = 139;
+pub const MARK: i32 = 140;
+pub const TRANSCRIBE_FILES: i32 = 141;
+pub const PROFILE_LABEL: i32 = 142;
+pub const PROFILE: i32 = 143;
+pub const PROFILE_HELP: i32 = 144;
+pub const PROFILE_WIDTH: i32 = 310;
 
 const TRAY_MESSAGE: u32 = WM_APP + 14;
 
@@ -78,7 +86,8 @@ impl View {
     }
     pub fn place(&self, id: i32, x: i32, y: i32, w: i32, h: i32) {
         let combo = [
-            PRESET, FORMAT, BITRATE, SAMPLE, CHANNEL, MIC, MONITOR, APP_GAIN, MIC_GAIN, MODE,
+            PROFILE, PRESET, FORMAT, BITRATE, SAMPLE, CHANNEL, MIC, MONITOR, APP_GAIN, MIC_GAIN,
+            MODE,
         ]
         .contains(&id);
         let height = if combo { h.max(1) * 9 } else { h.max(1) };
@@ -141,6 +150,10 @@ impl Window {
                 }
             }
             self.font = font;
+        }
+        let profile_width = (PROFILE_WIDTH as usize * dpi as usize + 48) / 96;
+        unsafe {
+            SendMessageW(self.view.get(PROFILE), CB_SETDROPPEDWIDTH, profile_width, 0);
         }
     }
     unsafe fn layout(&mut self) {
@@ -546,9 +559,105 @@ pub fn run() -> Result<(), String> {
         let combo = WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32;
         let items = [
             Control {
+                id: PROFILE_LABEL,
+                class: "STATIC",
+                label: "&Recording profile",
+                style: label,
+            },
+            Control {
+                id: PROFILE,
+                class: "COMBOBOX",
+                label: "",
+                style: combo,
+            },
+            Control {
+                id: PROFILE_HELP,
+                class: "STATIC",
+                label: "",
+                style: label,
+            },
+            Control {
+                id: FORMAT_LABEL,
+                class: "STATIC",
+                label: "Format",
+                style: label,
+            },
+            Control {
+                id: FORMAT,
+                class: "COMBOBOX",
+                label: "",
+                style: combo,
+            },
+            Control {
+                id: CHANNEL_LABEL,
+                class: "STATIC",
+                label: "Channels",
+                style: label,
+            },
+            Control {
+                id: CHANNEL,
+                class: "COMBOBOX",
+                label: "",
+                style: combo,
+            },
+            Control {
+                id: BITRATE_LABEL,
+                class: "STATIC",
+                label: "Opus bitrate (kbps)",
+                style: label,
+            },
+            Control {
+                id: BITRATE,
+                class: "COMBOBOX",
+                label: "",
+                style: combo,
+            },
+            Control {
+                id: SAMPLE_LABEL,
+                class: "STATIC",
+                label: "Sample rate (Hz)",
+                style: label,
+            },
+            Control {
+                id: SAMPLE,
+                class: "COMBOBOX",
+                label: "",
+                style: combo,
+            },
+            Control {
+                id: START,
+                class: "BUTTON",
+                label: "Start recording",
+                style: button,
+            },
+            Control {
+                id: PAUSE,
+                class: "BUTTON",
+                label: "Pause",
+                style: button,
+            },
+            Control {
+                id: STOP,
+                class: "BUTTON",
+                label: "Stop",
+                style: button,
+            },
+            Control {
+                id: MARK,
+                class: "BUTTON",
+                label: "Add marker",
+                style: button,
+            },
+            Control {
+                id: TRANSCRIBE_FILES,
+                class: "BUTTON",
+                label: "Transcribe files…",
+                style: button,
+            },
+            Control {
                 id: PRESET_LABEL,
                 class: "STATIC",
-                label: "Preset",
+                label: "Saved setup",
                 style: label,
             },
             Control {
@@ -560,19 +669,19 @@ pub fn run() -> Result<(), String> {
             Control {
                 id: SAVE,
                 class: "BUTTON",
-                label: "Save preset",
+                label: "Save setup",
                 style: button,
             },
             Control {
                 id: LOAD,
                 class: "BUTTON",
-                label: "Load preset",
+                label: "Load setup",
                 style: button,
             },
             Control {
                 id: DELETE,
                 class: "BUTTON",
-                label: "Delete preset",
+                label: "Delete setup",
                 style: button,
             },
             Control {
@@ -609,54 +718,6 @@ pub fn run() -> Result<(), String> {
                 class: "BUTTON",
                 label: "Capture all system audio",
                 style: check,
-            },
-            Control {
-                id: FORMAT_LABEL,
-                class: "STATIC",
-                label: "Format",
-                style: label,
-            },
-            Control {
-                id: FORMAT,
-                class: "COMBOBOX",
-                label: "",
-                style: combo,
-            },
-            Control {
-                id: BITRATE_LABEL,
-                class: "STATIC",
-                label: "Opus bitrate (kbps)",
-                style: label,
-            },
-            Control {
-                id: BITRATE,
-                class: "COMBOBOX",
-                label: "",
-                style: combo,
-            },
-            Control {
-                id: SAMPLE_LABEL,
-                class: "STATIC",
-                label: "WAV sample rate (Hz)",
-                style: label,
-            },
-            Control {
-                id: SAMPLE,
-                class: "COMBOBOX",
-                label: "",
-                style: combo,
-            },
-            Control {
-                id: CHANNEL_LABEL,
-                class: "STATIC",
-                label: "Channels",
-                style: label,
-            },
-            Control {
-                id: CHANNEL,
-                class: "COMBOBOX",
-                label: "",
-                style: combo,
             },
             Control {
                 id: MIC_LABEL,
@@ -749,22 +810,21 @@ pub fn run() -> Result<(), String> {
                 style: button,
             },
             Control {
-                id: START,
-                class: "BUTTON",
-                label: "Start recording",
-                style: button,
+                id: LEVELS_LABEL,
+                class: "STATIC",
+                label: "Source levels",
+                style: label,
             },
             Control {
-                id: PAUSE,
-                class: "BUTTON",
-                label: "Pause",
-                style: button,
-            },
-            Control {
-                id: STOP,
-                class: "BUTTON",
-                label: "Stop",
-                style: button,
+                id: LEVELS,
+                class: "EDIT",
+                label: "Source levels appear while recording.",
+                style: WS_TABSTOP
+                    | WS_BORDER
+                    | WS_VSCROLL
+                    | ES_MULTILINE as u32
+                    | ES_READONLY as u32
+                    | ES_AUTOVSCROLL as u32,
             },
             Control {
                 id: STATUS,
@@ -816,7 +876,7 @@ pub fn run() -> Result<(), String> {
             tray: false,
         });
         state.update_font();
-        state.controller.sync_full(&state.view);
+        state.controller.initialize(&state.view);
         let ptr = Box::into_raw(state);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, ptr as isize);
         guarded(hwnd, || {

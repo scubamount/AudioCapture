@@ -154,6 +154,83 @@ fn config(folder: PathBuf, pid: u32) -> Config {
 }
 
 #[test]
+#[ignore = "plays two generated tones on a working Windows output"]
+fn an_exited_source_keeps_the_other_track_recording() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "capture-source-exit-{}-{stamp}",
+        std::process::id()
+    ));
+    let output = root.join("recorded");
+    fs::create_dir_all(&output).unwrap();
+    let departing_tone = root.join("departing.wav");
+    let surviving_tone = root.join("surviving.wav");
+    write_tone(&departing_tone, 700.0);
+    write_tone(&surviving_tone, 1300.0);
+    let departing = play_in_child(&departing_tone);
+    let surviving = play_in_child(&surviving_tone);
+    thread::sleep(Duration::from_millis(800));
+    let mut options = config(output.clone(), departing.0.id());
+    options.inputs = vec![
+        ("departing".into(), Input::Process(departing.0.id()), 1.0),
+        ("surviving".into(), Input::Process(surviving.0.id()), 1.0),
+    ];
+    options.mixed = true;
+    let mut session = Session::start(options).unwrap();
+    thread::sleep(Duration::from_millis(1250));
+    assert!(
+        session.status().contains("Recording"),
+        "{}",
+        session.status()
+    );
+    drop(departing);
+    thread::sleep(Duration::from_millis(1700));
+    assert!(!session.is_finished(), "{}", session.status());
+    session.stop().unwrap();
+    assert!(
+        session.status().contains("departing"),
+        "{}",
+        session.status()
+    );
+    let track = fs::read_dir(&output)
+        .unwrap()
+        .flatten()
+        .find(|item| item.file_name().to_string_lossy().starts_with("surviving-"))
+        .unwrap()
+        .path();
+    let tail = Command::new("ffmpeg")
+        .args(["-v", "error", "-sseof", "-0.45", "-i"])
+        .arg(track)
+        .args(["-f", "s16le", "-ac", "1", "-ar", "16000", "-"])
+        .output()
+        .unwrap();
+    assert!(tail.status.success());
+    let samples: Vec<i16> = tail
+        .stdout
+        .chunks_exact(2)
+        .map(|v| i16::from_le_bytes([v[0], v[1]]))
+        .collect();
+    assert!(samples.len() >= 6400, "too few surviving samples");
+    let tone = samples
+        .iter()
+        .enumerate()
+        .fold((0.0, 0.0), |(x, y), (i, v)| {
+            let angle = std::f64::consts::TAU * 1300.0 * i as f64 / 16000.0;
+            (
+                x + f64::from(*v) * angle.cos(),
+                y + f64::from(*v) * angle.sin(),
+            )
+        });
+    assert!(
+        tone.0.hypot(tone.1) / samples.len() as f64 > 100.0,
+        "surviving tone missing in tail"
+    );
+}
+
+#[test]
 #[ignore = "plays two audible test tones; requires a working Windows output and ffmpeg"]
 fn selected_process_stays_isolated_across_sessions() {
     let stamp = SystemTime::now()

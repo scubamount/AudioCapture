@@ -3,6 +3,7 @@
 mod native_controller;
 mod native_layout;
 mod native_window;
+mod worker_launch;
 
 fn main() {
     if let Err(error) = native_window::run() {

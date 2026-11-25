@@ -65,17 +65,16 @@ echo Copying executable to package folder...
 copy /Y "build\bin\Release\AudioCapture.exe" "package\AudioCapture.exe"
 
 if errorlevel 1 (
-    echo WARNING: Failed to copy executable to package folder
+    echo ERROR: Failed to copy executable to package folder
+    exit /b 1
 ) else (
     echo Successfully copied to package\AudioCapture.exe
 )
 
-REM Ensure README.md is in package folder (should be in git, but copy if missing)
-if not exist "package\README.md" (
-    echo Copying README to package folder...
-    if exist "README.md" (
-        copy /Y "README.md" "package\README.md"
-    )
+copy /Y "docs\legacy\README.md" "package\README.md" >nul
+if errorlevel 1 (
+    echo ERROR: Failed to copy the C++ recorder guide.
+    exit /b 1
 )
 
 echo.
