@@ -84,7 +84,7 @@ fn parse(bytes: &[u8], source_id: &str, duration_ms: u64) -> Result<AdapterOutpu
     Ok(result)
 }
 
-fn job() -> Result<OwnedHandle, String> {
+pub(crate) fn job() -> Result<OwnedHandle, String> {
     // The job handle is private and non-inheritable. Closing the last handle
     // terminates every member, even if the worker exits before normal cleanup.
     let raw = unsafe { CreateJobObjectW(null(), null()) };
@@ -116,7 +116,7 @@ fn job() -> Result<OwnedHandle, String> {
     Ok(job)
 }
 
-fn start_in_job(child: &Child, job: &OwnedHandle) -> Result<(), String> {
+pub(crate) fn start_in_job(child: &Child, job: &OwnedHandle) -> Result<(), String> {
     let ok = unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) };
     if ok == 0 {
         return Err(format!(

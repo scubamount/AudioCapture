@@ -13,6 +13,7 @@ use windows_sys::Win32::Security::Cryptography::{
 };
 use windows_sys::Win32::Storage::FileSystem::MoveFileW;
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Options {
     pub base_url: String,
     pub model: String,
@@ -29,6 +30,8 @@ pub struct Options {
     pub chunk_long: bool,
     pub review: Option<PathBuf>,
     pub files: Vec<PathBuf>,
+    #[serde(skip)]
+    pub coordinated: Option<crate::batch_queue::ItemContext>,
 }
 
 impl Default for Options {
@@ -49,6 +52,7 @@ impl Default for Options {
             chunk_long: false,
             review: None,
             files: Vec::new(),
+            coordinated: None,
         }
     }
 }
@@ -185,7 +189,7 @@ pub(super) fn lock(path: &Path) -> Result<File, String> {
         .map_err(|e| format!("Cannot lock job {}: {e}", path.display()))
 }
 
-fn parse_response(
+pub(super) fn parse_response(
     response: &transport::Response,
 ) -> Result<(String, Option<serde_json::Value>), String> {
     let content_type = response
@@ -502,7 +506,7 @@ fn publish_new(path: &Path, contents: &[u8]) -> Result<(), String> {
         .map_err(|error| format!("Cannot publish saved response {}: {error}", path.display()))
 }
 
-fn disambiguate_labels(tracks: &mut [review::ReviewTrack]) {
+pub(super) fn disambiguate_labels(tracks: &mut [review::ReviewTrack]) {
     let labels: Vec<String> = tracks.iter().map(|track| track.label.clone()).collect();
     for track in tracks {
         if labels.iter().filter(|label| *label == &track.label).count() > 1 {
@@ -535,23 +539,26 @@ fn recorder_session(path: &Path) -> Option<(&str, bool)> {
     Some((id, name == "Combined"))
 }
 
-fn validate_batch(options: &Options) -> Result<(), String> {
+pub(super) fn duplicate_coverage(files: &[PathBuf]) -> bool {
+    files.iter().any(|left| {
+        recorder_session(left).is_some_and(|(id, mixed)| {
+            mixed
+                && files
+                    .iter()
+                    .any(|right| matches!(recorder_session(right),Some((other,false)) if other==id))
+        })
+    })
+}
+
+pub(super) fn validate_batch(options: &Options) -> Result<(), String> {
     if options.timestamps && options.provider_profile.is_some() {
         return Err("Choose either --timestamps or --provider-profile".into());
     }
     if options.review.as_ref().is_some_and(|path| path.exists()) {
         return Err("The requested review file already exists. Choose a new path.".into());
     }
-    if !options.allow_duplicate_sources {
-        for left in &options.files {
-            if let Some((id, true)) = recorder_session(left) {
-                if options.files.iter().any(
-                    |right| matches!(recorder_session(right), Some((other, false)) if other == id),
-                ) {
-                    return Err("Combined and separate tracks contain duplicate audio. Select one or use --allow-duplicate-sources".into());
-                }
-            }
-        }
+    if !options.allow_duplicate_sources && duplicate_coverage(&options.files) {
+        return Err("Combined and separate tracks contain duplicate audio. Select one or use --allow-duplicate-sources".into());
     }
     Ok(())
 }
@@ -608,7 +615,7 @@ pub fn run(mut options: Options) -> Result<(), String> {
     }
 }
 
-fn process_file(
+pub(super) fn process_file(
     input: &Path,
     options: &Options,
     endpoint: &transport::Endpoint,
@@ -635,6 +642,9 @@ fn process_file(
         return Err("Input exceeds the configured file limit. Use --chunk-long to convert it into bounded WAV chunks.".into());
     }
     let source_sha256 = digest(&mut stable)?;
+    if let Some(context) = &options.coordinated {
+        context.validate_input(&source_sha256)?;
+    }
     if !oversized {
         return process_part(
             &input,
@@ -661,7 +671,11 @@ fn process_file(
         options.provider_profile,
     )?;
     let aggregate_state = job_dir.join(format!("{aggregate_key}.aggregate.json"));
-    let _aggregate_lock = lock(&job_dir.join(format!("{aggregate_key}.aggregate.lock")))?;
+    let aggregate_lock = job_dir.join(format!("{aggregate_key}.aggregate.lock"));
+    let _aggregate_lock = match &options.coordinated {
+        Some(context) => context.wait_for_lock(&aggregate_lock)?,
+        None => lock(&aggregate_lock)?,
+    };
     if aggregate_state.exists() {
         let saved = File::open(&aggregate_state)
             .ok()
@@ -773,6 +787,13 @@ fn process_file(
         // Missing or damaged aggregate output is rebuilt from per-part jobs.
     }
     let mut parts = Vec::new();
+    // Only one UI batch stages converted audio at once, even if several
+    // guided consoles or destinations are active.
+    let _staging = options
+        .coordinated
+        .as_ref()
+        .map(|context| context.audio_staging(limit))
+        .transpose()?;
     chunks::for_each_wav(&input, job_dir, limit, |path, offset, frames| {
         let track = process_part(
             &input,
@@ -903,23 +924,59 @@ fn process_part(
     } else {
         source_sha256.to_owned()
     };
-    let id = request_key(
-        &(
-            input.to_string_lossy().as_ref(),
-            source_sha256,
-            &part_sha256,
-            part,
-            &transport::canonical_key(endpoint),
-            &options.model,
-            &options.language,
-            options.timestamps,
-        ),
-        options.provider_profile,
-    )?;
+    let job_key = |path: &Path| {
+        request_key(
+            &(
+                path.to_string_lossy().as_ref(),
+                source_sha256,
+                &part_sha256,
+                part,
+                &transport::canonical_key(endpoint),
+                &options.model,
+                &options.language,
+                options.timestamps,
+            ),
+            options.provider_profile,
+        )
+    };
+    let id = job_key(input)?;
+    // Legacy IDs include the path. Coordinate identical approved bytes under
+    // one content lock, while retaining each file's normal outputs and IDs.
+    let content = if let Some(context) = &options.coordinated {
+        let key = request_key(
+            &(
+                source_sha256,
+                &part_sha256,
+                part,
+                transport::canonical_key(endpoint),
+                &options.model,
+                &options.language,
+                options.timestamps,
+                // The upload content type follows the extension.
+                upload
+                    .extension()
+                    .map(|ext| ext.to_string_lossy().to_ascii_lowercase()),
+            ),
+            options.provider_profile,
+        )?;
+        let directory = job_dir.join("content");
+        fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        Some((
+            context.wait_for_lock(&directory.join(format!("{key}.lock")))?,
+            directory.join(format!("{key}.json")),
+        ))
+    } else {
+        None
+    };
     let state_path = job_dir.join(format!("{id}.json"));
     let response_path = job_dir.join(format!("{id}.response.json"));
     let base = format!("{}-{}", safe_name(input), &id[..16]);
-    let _lock = lock(&job_dir.join(format!("{id}.lock")))?;
+    let lock_path = job_dir.join(format!("{id}.lock"));
+    let _lock = if let Some(context) = &options.coordinated {
+        context.wait_for_lock(&lock_path)?
+    } else {
+        lock(&lock_path)?
+    };
     let existing = if state_path.exists() {
         Some(
             read_job_json::<Job>(File::open(&state_path).map_err(|e| e.to_string())?)
@@ -930,6 +987,33 @@ fn process_part(
     };
     if existing.is_none() && response_path.exists() {
         return Err("A saved response has no matching job state. Keep it for inspection and use a new output directory.".into());
+    }
+    let mut shared_response = None;
+    if let Some((_, pointer)) = &content
+        && pointer.exists()
+    {
+        let owner: String = crate::batch_queue::read_json(pointer)?;
+        if owner.len() != 64 || !owner.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Invalid batch content cache reference".into());
+        }
+        let prior: Job = read_job_json(
+            File::open(job_dir.join(format!("{owner}.json"))).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        if prior.version != 1 || prior.identity != owner || job_key(&prior.input)? != owner {
+            return Err("Batch content cache settings do not match the approved request.".into());
+        }
+        let cached = job_dir.join(format!("{owner}.response.json"));
+        if cached.is_file() {
+            shared_response = Some(cached);
+        } else if owner != id {
+            if prior.status != "failed" && !options.retry_unknown {
+                if let Some(context) = &options.coordinated {
+                    context.mark_unknown()?;
+                }
+                return Err("A request for these same bytes may have completed. Use --retry-unknown to resend.".into());
+            }
+        }
     }
     if let Some(job) = &existing {
         if job.version != 1
@@ -953,6 +1037,12 @@ fn process_part(
             return Err("Job state is inconsistent or uses an unsupported version. Keep it for inspection and use a new output directory.".into());
         }
         if job.status == "complete" {
+            if let Some((_, pointer)) = &content
+                && !pointer.exists()
+                && response_path.is_file()
+            {
+                crate::batch_queue::atomic_json(pointer, &id)?;
+            }
             let text = fs::read_to_string(&job.text)
                 .map_err(|e| format!("Completed output is unavailable: {e}"))?;
             let raw = match &job.json {
@@ -979,7 +1069,14 @@ fn process_part(
                 raw.as_ref(),
             ));
         }
-        if job.status == "unknown" && !response_path.exists() && !options.retry_unknown {
+        if job.status == "unknown"
+            && !response_path.exists()
+            && shared_response.is_none()
+            && !options.retry_unknown
+        {
+            if let Some(context) = &options.coordinated {
+                context.mark_unknown()?;
+            }
             return Err(
                 "A previous request may have completed remotely. Use --retry-unknown to resend it."
                     .into(),
@@ -1014,7 +1111,28 @@ fn process_part(
     };
     // Persist the ambiguity before sending any bytes. A crash cannot trigger an
     // implicit duplicate upload on the next invocation.
+    let admission = if !response_path.exists() && shared_response.is_none() {
+        options
+            .coordinated
+            .as_ref()
+            .map(|context| context.admit(&transport::canonical_key(endpoint)))
+            .transpose()?
+    } else {
+        None
+    };
     save_state(&state_path, &job)?;
+    if !response_path.exists() {
+        if let Some(cached) = &shared_response {
+            // Files share a volume in normal installations. Keep FAT and
+            // network destinations usable when hard links are unavailable.
+            if fs::hard_link(cached, &response_path).is_err() {
+                let bytes = fs::read(cached).map_err(|e| e.to_string())?;
+                publish_new(&response_path, &bytes)?;
+            }
+        } else if let Some((_, pointer)) = &content {
+            crate::batch_queue::atomic_json(pointer, &id)?;
+        }
+    }
     let response = if response_path.exists() {
         // A response received before interruption is recoverable without another upload.
         let saved: CachedResponse =
@@ -1027,20 +1145,34 @@ fn process_part(
             body: saved.body,
         }
     } else {
-        let received = match transport::transcribe(
-            endpoint,
-            &options.model,
-            key,
-            options.language.as_deref(),
-            upload,
-            options.timestamps,
-            options.provider_profile,
-        ) {
+        if let Some(context) = &options.coordinated {
+            context.mark_unknown()?;
+        }
+        let transfer = if let Some((_, deadline)) = &admission {
+            crate::batch_queue::transfer(options, upload, *deadline)
+        } else {
+            transport::transcribe(
+                endpoint,
+                &options.model,
+                key,
+                options.language.as_deref(),
+                upload,
+                options.timestamps,
+                options.provider_profile,
+            )
+        };
+        drop(admission);
+        let received = match transfer {
             Ok(response) => response,
             Err(error) => {
                 if !error.may_have_been_processed {
+                    if let Some(context) = &options.coordinated {
+                        context.clear_unknown();
+                    }
                     job.status = "failed".into();
                     save_state(&state_path, &job)?;
+                } else if let Some(context) = &options.coordinated {
+                    context.mark_unknown()?;
                 }
                 return Err(error.message);
             }
@@ -1054,6 +1186,9 @@ fn process_part(
         };
         let serialized = serde_json::to_vec(&cache).map_err(|e| e.to_string())?;
         publish_new(&response_path, &serialized)?;
+        if let Some(context) = &options.coordinated {
+            context.clear_unknown();
+        }
         received
     };
     let (text, raw) = parse_response(&response)?;

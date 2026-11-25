@@ -531,7 +531,9 @@ pub fn render(session: &Session) -> String {
     writeln!(
         out,
         "{}",
-        if session.shared_clock {
+        if session.sources.iter().any(|s| s.provenance["time_basis"] == "capture_session") {
+            "Times use the capture session timeline, including recording pauses and removed silence."
+        } else if session.shared_clock {
             "Times use the shared saved recording timeline."
         } else {
             "Times are relative to each source. Sources have independent timelines."
@@ -550,6 +552,40 @@ pub fn render(session: &Session) -> String {
                 .map_or_else(|| "unknown".into(), |ms| format!("{ms} ms"))
         )
         .unwrap();
+        if source.provenance["time_basis"] == "capture_session" {
+            if let Some(label) = source.provenance["source_label"].as_str() {
+                writeln!(out, "  Live source {label:?}").unwrap();
+            }
+            if let Some(refinements) = source.provenance["refinements"].as_array() {
+                if refinements.is_empty() {
+                    writeln!(
+                        out,
+                        "  Select retained audio and its timeline to verify refinement coverage."
+                    )
+                    .unwrap();
+                }
+                for pass in refinements {
+                    let ranges = pass["saved_coverage_frames"]
+                        .as_array()
+                        .map_or(&[][..], Vec::as_slice);
+                    writeln!(
+                        out,
+                        "  Verified {} retained ranges for recording {}.",
+                        ranges.len(),
+                        pass["recording"]
+                    )
+                    .unwrap();
+                    for r in ranges.iter().take(12) {
+                        if let (Some(a), Some(b)) = (r[0].as_u64(), r[1].as_u64()) {
+                            writeln!(out, "    {} to {} ms", a / 48, b.div_ceil(48)).unwrap();
+                        }
+                    }
+                    if ranges.len() > 12 {
+                        writeln!(out, "    Use --json for all retained ranges.").unwrap();
+                    }
+                }
+            }
+        }
         if let Some(status) = source.provenance["attribution_status"].as_str() {
             writeln!(out, "  Speaker attribution {status:?}").unwrap();
         }

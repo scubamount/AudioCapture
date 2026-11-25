@@ -8,7 +8,10 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from check_package import verify_payload
+
 MODULE = Path(__file__).with_name("package.py")
+EXAMPLE_PATH = "config/transcription.example.json"
 spec = importlib.util.spec_from_file_location("packager_under_test", MODULE)
 packager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packager)
@@ -27,6 +30,10 @@ class PackagingTests(unittest.TestCase):
         self.adapter = self.root / "tools/diarize_local.py"
         self.adapter.parent.mkdir()
         self.adapter.write_text("# Optional local adapter", encoding="utf-8")
+        self.example = self.root / EXAMPLE_PATH
+        self.example.parent.mkdir()
+        self.example_data = (MODULE.parent.parent / EXAMPLE_PATH).read_bytes()
+        self.example.write_bytes(self.example_data)
         self.dep = self.root / "dependency"
         self.dep.mkdir()
         (self.dep / "LICENSE").write_text("license", encoding="utf-8")
@@ -85,19 +92,46 @@ class PackagingTests(unittest.TestCase):
         (self.root / "src/main.rs").write_text("updated", encoding="utf-8")
         for excluded in ("model.onnx", "python.exe", "private.opus", "test_package.py"):
             self.adapter.with_name(excluded).write_bytes(b"excluded")
+        (self.root / "transcription.json").write_text("private settings", encoding="utf-8")
+        self.example.with_name("personal.json").write_text("private settings", encoding="utf-8")
         self.run_main()
         with zipfile.ZipFile(self.output) as archive:
             self.assertEqual(archive.read("audio-capture.exe"), b"updated")
             self.assertEqual(archive.read("transcribe.exe"), b"updated")
             self.assertEqual(archive.read("tools/diarize_local.py"), self.adapter.read_bytes())
+            self.assertEqual(archive.read(EXAMPLE_PATH), self.example_data)
+            example = json.loads(archive.read(EXAMPLE_PATH))
+            self.assertEqual(example["version"], 1)
+            self.assertFalse(example["speech_gating"])
+            self.assertFalse(example["speaker_labels"])
             self.assertEqual(set(archive.namelist()), {
                 "audio-capture.exe", "transcribe.exe", "README.md", "tools/diarize_local.py",
-                "licenses/DEPENDENCIES.md", "licenses/dep-1.0.0/LICENSE",
+                "licenses/DEPENDENCIES.md", "licenses/dep-1.0.0/LICENSE", EXAMPLE_PATH,
             })
         second = Path(self.temp.name) / "second.zip"
         self.run_main(second)
         self.assertEqual(self.output.read_bytes(), second.read_bytes())
         self.assertEqual(len(self.built), 2)
+
+    def test_verify_payload_rejects_missing_example_and_unlisted_files(self):
+        self.run_main()
+        with zipfile.ZipFile(self.output) as archive:
+            verify_payload(archive, self.root)
+            entries = {name: archive.read(name) for name in archive.namelist()}
+        mistakes = (
+            {name: data for name, data in entries.items() if name != EXAMPLE_PATH},
+            {**entries, "transcription.json": b"private"},
+            {**entries, "licenses/dep-1.0.0/private.opus": b"private"},
+            {**entries, EXAMPLE_PATH: b"{}"},
+        )
+        for index, contents in enumerate(mistakes):
+            path = self.root / f"unexpected-{index}.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                for name, data in contents.items():
+                    archive.writestr(name, data)
+            with zipfile.ZipFile(path) as archive:
+                with self.assertRaises(RuntimeError):
+                    verify_payload(archive, self.root)
 
     def test_rejects_source_change_during_build(self):
         self.change_during_build = self.root / "src/main.rs"
@@ -107,6 +141,12 @@ class PackagingTests(unittest.TestCase):
 
     def test_rejects_adapter_change_during_build(self):
         self.change_during_build = self.adapter
+        with self.assertRaisesRegex(RuntimeError, "changed while packaging"):
+            self.run_main()
+        self.assertFalse(self.output.exists())
+
+    def test_rejects_example_change_during_build(self):
+        self.change_during_build = self.example
         with self.assertRaisesRegex(RuntimeError, "changed while packaging"):
             self.run_main()
         self.assertFalse(self.output.exists())

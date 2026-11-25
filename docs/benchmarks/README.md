@@ -1,6 +1,6 @@
 # Benchmark figures
 
-The speaker figures cover synthetic English conversations with supplied words and timestamps. The storage figure covers a separate recording experiment. [Aggregate inputs](data.json) · [Performance measurements](../performance.md)
+The speaker figures cover synthetic English conversations with supplied words and timestamps. The storage figures describe encoder replays on synthetic and saved tracks. [Aggregate inputs](data.json) · [Performance measurements](../performance.md)
 
 ## Speaker attribution
 
@@ -50,6 +50,42 @@ Each setting encoded the same decoded samples from two simultaneous 29.088-secon
 
 The original tracks already used Opus. Speech DTX enabled discontinuous transmission and changed the Opus application to VoIP. These measurements include both changes. Regular 32 kbps gave the closest overall match to the original files’ recognition output on this pair. No independent reference transcript was available. [Codec comparison and recognition settings](../performance.md#size-and-speech-recognition)
 
+## Silence removal and Opus DTX
+
+![At 32 kbps, silence removal shortened two synthetic tracks from 40 to 8.52 seconds each. Both saved tracks kept their original duration. Speech DTX reduced the combined file size in each case. The table gives all eight byte totals.](../images/benchmarks/live-silence-storage.svg)
+
+| Track pair | Skip silence | Saved frames per track | Playback per track | Regular Opus | Speech DTX |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Synthetic call with long pauses | Off | 1,920,000 | 40.00 s | 136,198 B | 54,879 B |
+| Synthetic call with long pauses | On | 408,960 | 8.52 s | 48,148 B | 40,073 B |
+| Saved call with continuous background sound | Off | 1,396,203 | 29.09 s | 157,593 B | 69,173 B |
+| Saved call with continuous background sound | On | 1,396,203 | 29.09 s | 157,593 B | 69,173 B |
+
+Both replays used the v2.0.0 Opus writer at 32 kbps mono. Each pair supplied the same source samples to all four setting combinations. The replay applied the recorder's shared silence threshold and checked the decoded sample counts with FFmpeg. A retained 10 ms block could contain sound in either track.
+
+Skip silence removed 78.7% of the synthetic call's samples. Background sound kept every block of the saved call. Speech DTX reduced the saved call's file size by 56.1% and preserved its duration. The two examples show why savings depend on the signal. This comparison measured recorded audio only. [Aggregate inputs and receipt hashes](data.json)
+
+## Live speaker labels
+
+![On four synthetic calls, completed-file versus live-prototype diarization error was 8.00% versus 29.86% on separate tracks. On a single mix it was 32.14% versus 45.42%. The table gives isolated-turn recall.](../images/benchmarks/live-speaker-labels.svg)
+
+| Source layout | Completed-file error | Live-prototype error | Completed-file isolated turns recovered | Live-prototype isolated turns recovered |
+| --- | ---: | ---: | ---: | ---: |
+| Separate tracks | 8.00% | 29.86% | 10 / 11 | 8 / 11 |
+| Single mix | 32.14% | 45.42% | 8 / 11 | 6 / 11 |
+
+This trial used four 40-second held-out calls with three synthetic voices and 24 annotated turns. The released adapter read each complete file. The live prototype received four-second blocks and could revise its most recent 24 seconds. Both used the same segmentation and TitaNet Small models.
+
+The trial pooled speaker time across calls. The live prototype missed the separate-track accuracy targets of at most 20% error and at least 90% isolated-turn recall. This figure describes that prototype on this test set. Recognition errors and annotated human calls were outside this trial. [Live speech qualification](live-quality.md) · [Aggregate inputs and receipt hashes](data.json)
+
+## Recording cost
+
+![Paired CPU and peak working-set changes for five recording-only trials. The chart shows each pair, the CPU median, and the largest memory increase. The CPU limit applies to the median. The dashed memory limit applies to each pair.](../images/benchmarks/live-recording-cost.svg)
+
+Both builds used the same size-optimized compiler flags. Each trial captured two generated Windows playback processes through WASAPI and saved two 32 kbps mono Opus tracks. The example used the recorder API without creating or painting a window.
+
+Each mark subtracts the v2.0.0 result from the candidate result for that pair. CPU uses percentage points of one logical core. The CPU limit applies to the median of the paired differences. The peak working-set limit applies to each pair. [Recording test methods and results](live-performance.md#selected-process-recording-results) · [Paired measurements](live-performance.json)
+
 ## Reproduce the figures
 
 Run these commands from the repository root with Python 3.9 or later. The generator uses only Python's standard library and writes deterministic UTF-8 SVG files.
@@ -61,6 +97,6 @@ python docs/benchmarks/generate.py --check
 
 The check validates measurement ranges and count totals. It compares each generated figure with its checked-in bytes. It runs without audio, models, or network access.
 
-The JSON file contains pooled speaker durations in milliseconds, naming counts, paired encoded byte counts, and source hashes. The storage totals match the public codec comparison. The speaker hashes identify the evaluated worker, fixture, and aggregate validation report. [Data](data.json) · [Generator](generate.py)
+The aggregate inputs contain pooled speaker durations, naming counts, paired encoded byte counts, and source hashes. The recording inputs contain the paired CPU and memory samples. The generator calculates the chart differences from those samples. [Aggregate inputs](data.json) · [Recording inputs](live-performance.json) · [Generator](generate.py)
 
 When embedding a figure elsewhere, use its image description above. Keep a link to the adjacent table for exact values and scope.

@@ -37,6 +37,10 @@ cmake_install.cmake
 *.mp3
 *.opus
 
+# Local transcription profiles and personalized distributions
+transcription.json
+*-personal-Windows-x64.zip
+
 # IDE
 .vscode/
 *.code-workspace

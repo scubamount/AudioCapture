@@ -118,6 +118,8 @@ pub struct Settings {
     pub skip_silence: bool,
     pub active_only: bool,
     pub process_names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remembered_program: Option<PathBuf>,
     pub system: bool,
     pub mic: Option<String>,
     pub monitor: Option<String>,
@@ -163,6 +165,7 @@ impl Settings {
             skip_silence: false,
             active_only: true,
             process_names: Vec::new(),
+            remembered_program: None,
             system: false,
             mic: None,
             monitor: None,
@@ -184,6 +187,10 @@ fn root() -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .map(|p| p.join("AudioCaptureRust"))
         .ok_or_else(|| "LOCALAPPDATA is unavailable".into())
+}
+
+pub(crate) fn recent_path() -> Result<PathBuf, String> {
+    root().map(|base| base.join("recent-programs.json"))
 }
 
 fn legacy_root() -> Result<PathBuf, String> {
@@ -229,13 +236,17 @@ fn read_current(path: &Path) -> Result<Settings, String> {
 
 fn write_current(path: &Path, settings: &Settings) -> Result<(), String> {
     validate(settings)?;
-    let dir = path.parent().ok_or("Settings destination has no parent")?;
-    fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     let data = serde_json::to_vec_pretty(&Stored {
         version: VERSION,
         settings: settings.clone(),
     })
     .map_err(|e| e.to_string())?;
+    write_atomic(path, &data)
+}
+
+pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
+    let dir = path.parent().ok_or("Settings destination has no parent")?;
+    fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temp = dir.join(format!(".settings-{}-{sequence}.tmp", std::process::id()));
     let mut file = OpenOptions::new()
@@ -244,7 +255,7 @@ fn write_current(path: &Path, settings: &Settings) -> Result<(), String> {
         .open(&temp)
         .map_err(|e| format!("Cannot create temporary settings file: {e}"))?;
     let result = (|| {
-        file.write_all(&data)?;
+        file.write_all(data)?;
         file.sync_all()?;
         drop(file);
         fs::rename(&temp, path)
@@ -475,7 +486,9 @@ pub fn load_preset(name: &str) -> Result<Settings, String> {
 }
 
 pub fn save_preset(name: &str, settings: &Settings) -> Result<(), String> {
-    write_current(&preset_path(&root()?, name)?, settings)
+    let mut preset = settings.clone();
+    preset.remembered_program = None;
+    write_current(&preset_path(&root()?, name)?, &preset)
 }
 
 pub fn delete_preset(name: &str) -> Result<(), String> {
@@ -549,6 +562,7 @@ mod tests {
             skip_silence: true,
             active_only: false,
             process_names: vec!["selected.exe".into()],
+            remembered_program: Some(PathBuf::from("selected.exe")),
             system: true,
             mic: Some("microphone-id".into()),
             monitor: Some("monitor-id".into()),

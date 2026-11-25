@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "audio-capture"
-version = "2.0.0"
+version = "2.1.0-dev.3"
 dependencies = [
  "libflac-sys",
  "ogg",

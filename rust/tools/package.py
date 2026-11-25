@@ -5,8 +5,9 @@ Run from the Rust project:
 
 This builds both release executables with Cargo's locked, offline dependency set.
 Registry source packages must already be available offline. The ZIP includes the
-operator guide and optional local diarization script. The ZIP uses fixed
-timestamps, but the executables' bytes depend on the build.
+operator guide, example transcription config, and optional local diarization
+script. The ZIP uses fixed timestamps, but the executables' bytes depend on
+the build.
 """
 
 import argparse
@@ -23,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TARGET = "x86_64-pc-windows-msvc"
 FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 BINARIES = ("audio-capture", "transcribe")
-SUPPORT_FILES = ("README.md", "tools/diarize_local.py")
+SUPPORT_FILES = ("README.md", "config/transcription.example.json", "tools/diarize_local.py")
 
 
 def cargo(*args):
@@ -36,7 +37,7 @@ def archive_entry(archive, name, data):
     info = zipfile.ZipInfo(name, FIXED_TIME)
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = 0o100644 << 16
-    archive.writestr(info, data)
+    archive.writestr(info, data, compresslevel=9)
 
 
 def source_digest():

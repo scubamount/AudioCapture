@@ -107,11 +107,36 @@ pub struct CaptureStats {
     pub uncertain_events: AtomicU64,
 }
 
-#[derive(Debug, PartialEq)]
-enum TimingEvent {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum TimingEvent {
     None,
     KnownGap(u64),
     Uncertain,
+}
+
+enum PacketSink {
+    Plain(SyncSender<Packet>),
+    Timed(SyncSender<(Packet, TimingEvent)>),
+}
+
+impl PacketSink {
+    fn send(&self, packet: Packet, timing: TimingEvent) -> Result<(), String> {
+        fn checked<T>(result: Result<(), TrySendError<T>>) -> Result<(), String> {
+            match result {
+                Ok(()) => Ok(()),
+                Err(TrySendError::Full(_)) => {
+                    Err("Audio capture queue overflowed; recording is incomplete".into())
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    Err("Audio recording worker disconnected".into())
+                }
+            }
+        }
+        match self {
+            Self::Plain(tx) => checked(tx.try_send(packet)),
+            Self::Timed(tx) => checked(tx.try_send((packet, timing))),
+        }
+    }
 }
 
 fn add_saturating(counter: &AtomicU64, amount: u64) {
@@ -231,7 +256,7 @@ pub fn run(
 ) -> Result<(), String> {
     run_with_counters(
         input,
-        sink,
+        PacketSink::Plain(sink),
         stop,
         ready,
         epoch,
@@ -254,7 +279,7 @@ pub fn run_observed(
 ) -> Result<(), String> {
     run_with_counters(
         input,
-        sink,
+        PacketSink::Plain(sink),
         stop,
         ready,
         epoch,
@@ -272,12 +297,41 @@ pub fn run_with_stats(
     epoch: Instant,
     stats: Arc<CaptureStats>,
 ) -> Result<(), String> {
-    run_with_counters(input, sink, stop, ready, epoch, &stats, None)
+    run_with_counters(
+        input,
+        PacketSink::Plain(sink),
+        stop,
+        ready,
+        epoch,
+        &stats,
+        None,
+    )
+}
+
+/// Keep discontinuity evidence attached to the packet that established it.
+/// This shares the existing bounded audio queue and its ordering.
+pub(crate) fn run_timed(
+    input: Input,
+    sink: SyncSender<(Packet, TimingEvent)>,
+    stop: Arc<AtomicBool>,
+    ready: Sender<Result<(), String>>,
+    epoch: Instant,
+    stats: Arc<CaptureStats>,
+) -> Result<(), String> {
+    run_with_counters(
+        input,
+        PacketSink::Timed(sink),
+        stop,
+        ready,
+        epoch,
+        &stats,
+        None,
+    )
 }
 
 fn run_with_counters(
     input: Input,
-    sink: SyncSender<Packet>,
+    sink: PacketSink,
     stop: Arc<AtomicBool>,
     ready: Sender<Result<(), String>>,
     epoch: Instant,
@@ -299,7 +353,7 @@ fn run_with_counters(
 
 fn run_inner(
     input: Input,
-    sink: SyncSender<Packet>,
+    sink: PacketSink,
     stop: Arc<AtomicBool>,
     ready: &mut Option<Sender<Result<(), String>>>,
     epoch: Instant,
@@ -445,17 +499,7 @@ fn run_inner(
                     .chunks_exact(4)
                     .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                     .collect();
-                match sink.try_send(Packet { frame, samples }) {
-                    Ok(()) => {}
-                    Err(TrySendError::Full(_)) => {
-                        return Err(
-                            "Audio capture queue overflowed; recording is incomplete".into()
-                        );
-                    }
-                    Err(TrySendError::Disconnected(_)) => {
-                        return Err("Audio recording worker disconnected".into());
-                    }
-                }
+                sink.send(Packet { frame, samples }, event)?;
                 next_frame = Some(frame.saturating_add(read as u64));
                 had_packet = true;
             }

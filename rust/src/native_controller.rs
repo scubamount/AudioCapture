@@ -1,11 +1,17 @@
+mod live;
+mod recents;
+
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::ptr;
 
+use crate::native_live::{Options as LiveOptions, Status as LiveStatus, Worker as LiveWorker};
 use crate::native_window::*;
-use crate::worker_launch::launch_transcription;
+use crate::worker_launch::{launch_batch_manager, launch_transcription};
 use audio_capture::{capture, prefs, record, sources};
+use std::time::Instant;
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK};
 
 type Hwnd = *mut c_void;
@@ -16,6 +22,7 @@ unsafe extern "system" {
     fn GetWindowTextW(hwnd: Hwnd, text: *mut u16, count: i32) -> i32;
     fn SetWindowTextW(hwnd: Hwnd, text: *const u16) -> i32;
     fn EnableWindow(hwnd: Hwnd, enable: i32) -> i32;
+    fn IsWindowEnabled(hwnd: Hwnd) -> i32;
     fn MessageBoxW(hwnd: Hwnd, text: *const u16, caption: *const u16, style: u32) -> i32;
     fn SetTimer(hwnd: Hwnd, id: usize, milliseconds: u32, callback: *const c_void) -> usize;
     fn KillTimer(hwnd: Hwnd, id: usize) -> i32;
@@ -71,6 +78,15 @@ fn set_levels(view: &View, value: &str) {
     set_text(view, LEVELS, &rendered);
     msg(view, LEVELS, EM_LINESCROLL, 0, line);
 }
+fn clock(seconds: u64) -> String {
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        (seconds / 60) % 60,
+        seconds % 60
+    )
+}
+
 fn gain_index(gain: f32) -> usize {
     (gain.clamp(0.0, 1.0) * 100.0).round() as usize
 }
@@ -111,11 +127,64 @@ fn set_checked(view: &View, id: i32, checked: bool) {
 }
 fn enabled(view: &View, id: i32, enable: bool) {
     unsafe {
-        EnableWindow(view.get(id) as Hwnd, i32::from(enable));
+        let hwnd = view.get(id) as Hwnd;
+        if (IsWindowEnabled(hwnd) != 0) != enable {
+            EnableWindow(hwnd, i32::from(enable));
+        }
     }
 }
-fn accepts_command(id: i32, session_active: bool) -> bool {
-    !session_active || [PAUSE, STOP, MARK].contains(&id)
+fn accepts_command(id: i32, scope_locked: bool) -> bool {
+    !scope_locked
+        || [
+            START,
+            PAUSE,
+            STOP,
+            MARK,
+            LIVE_TOGGLE,
+            STOP_BOTH,
+            LIVE_SPEAKERS,
+            LIVE_CANCEL_PENDING,
+            TRANSCRIBE_FILES,
+            BATCH_MANAGE,
+            LIVE_OPEN_TEXT,
+            LIVE_OPEN_FOLDER,
+            LIVE_BROWSE,
+            LOAD_LIVE_CONFIG,
+            SAVE_LIVE_CONFIG,
+        ]
+        .contains(&id)
+}
+
+fn encoding_label(settings: &prefs::Settings) -> String {
+    let channels = if settings.channels == 1 {
+        "mono"
+    } else {
+        "stereo"
+    };
+    if settings.format == "wav" {
+        let auto = if settings.wav_rate == 0 {
+            " (Auto)"
+        } else {
+            ""
+        };
+        return format!("WAV {} Hz {channels}{auto}", settings.encoding_rate());
+    }
+    if let Some(profile) = prefs::matched_encoding_profile(settings) {
+        return profile.label.to_owned();
+    }
+    match settings.format.as_str() {
+        "opus" => format!("Opus {} kbps {channels}", settings.opus_kbps),
+        "opus-speech" => format!("Opus speech DTX {} kbps {channels}", settings.opus_kbps),
+        "mp3" => format!("MP3 {} kbps {channels}", settings.mp3_kbps),
+        "flac" => format!("FLAC level {} {channels}", settings.flac_level),
+        format => format!("{format} {channels}"),
+    }
+}
+
+fn set_changed(view: &View, id: i32, value: &str) {
+    if text(view, id) != value {
+        set_text(view, id, value);
+    }
 }
 
 fn transcribe_files(view: &View) {
@@ -126,11 +195,13 @@ fn transcribe_files(view: &View) {
             "Audio and media files",
             audio_capture::TRANSCRIPTION_EXTENSIONS,
         )
+        .add_filter("Finalized recording sessions", &["jsonl"])
         .pick_files();
     let Some(files) = files.filter(|files| !files.is_empty()) else {
         return;
     };
-    if let Err(error) = launch_transcription(&files) {
+    let config = live::batch_transcription_config(view);
+    if let Err(error) = launch_transcription(&files, config.as_ref()) {
         unsafe {
             MessageBoxW(
                 view.hwnd as Hwnd,
@@ -168,6 +239,7 @@ fn retain_live_selections(
 
 pub struct Controller {
     settings: prefs::Settings,
+    encoding_summary: String,
     processes: Vec<sources::Process>,
     visible: Vec<usize>,
     selected: HashMap<u32, u64>,
@@ -175,6 +247,19 @@ pub struct Controller {
     outputs: Vec<(String, String)>,
     missing: Vec<String>,
     session: Option<record::Session>,
+    retiring: Vec<record::Session>,
+    recents: recents::Recents,
+    live: Option<LiveWorker>,
+    pending_config: Option<record::Config>,
+    finishing: Vec<LiveWorker>,
+    last_live: LiveStatus,
+    live_note: String,
+    recording_started: Option<Instant>,
+    recording_warning: Option<String>,
+    closing: bool,
+    close_errors: Vec<String>,
+    close_recovery: Option<LiveStatus>,
+    timer_on: Cell<bool>,
     paused: bool,
     status: String,
     discovery_warning: Option<String>,
@@ -192,8 +277,17 @@ impl Controller {
                 true,
             ),
         };
+        Self::from_settings(settings, status, settings_load_failed)
+    }
+
+    fn from_settings(
+        settings: prefs::Settings,
+        status: String,
+        settings_load_failed: bool,
+    ) -> Self {
         let missing = settings.process_names.clone();
-        let mut this = Self {
+        Self {
+            encoding_summary: encoding_label(&settings),
             settings,
             processes: Vec::new(),
             visible: Vec::new(),
@@ -202,66 +296,25 @@ impl Controller {
             outputs: Vec::new(),
             missing,
             session: None,
+            retiring: Vec::new(),
+            recents: recents::Recents::default(),
+            live: None,
+            pending_config: None,
+            finishing: Vec::new(),
+            last_live: LiveStatus::default(),
+            live_note: "Ready".into(),
+            recording_started: None,
+            recording_warning: None,
+            closing: false,
+            close_errors: Vec::new(),
+            close_recovery: None,
+            timer_on: Cell::new(false),
             paused: false,
             status,
             discovery_warning: None,
             marker_count: 0,
             settings_load_failed,
-        };
-        this.refresh();
-        this.resolve_names();
-        this
-    }
-
-    fn refresh(&mut self) {
-        match sources::processes_with_warnings() {
-            Ok((processes, warning)) => {
-                self.discovery_warning = warning;
-                let expired = retain_live_selections(
-                    &mut self.selected,
-                    &self.processes,
-                    &processes,
-                    sources::process_identity,
-                );
-                self.processes = processes;
-                if !expired.is_empty() {
-                    self.status = format!(
-                        "Selection expired. Select a program again: {}",
-                        expired.join(", ")
-                    );
-                }
-            }
-            Err(error) => {
-                self.discovery_warning = None;
-                self.status = format!("Could not list programs: {error}");
-            }
         }
-        match sources::devices() {
-            Ok((inputs, outputs)) => {
-                self.inputs = inputs;
-                self.outputs = outputs;
-            }
-            Err(error) => self.status = format!("Could not list audio devices: {error}"),
-        }
-    }
-
-    fn resolve_names(&mut self) {
-        let mut unresolved = Vec::new();
-        for name in self.missing.drain(..) {
-            let matches: Vec<_> = self
-                .processes
-                .iter()
-                .filter(|p| p.name.eq_ignore_ascii_case(&name))
-                .collect();
-            if let [process] = matches.as_slice() {
-                if let Ok(identity) = sources::process_identity(process.pid) {
-                    self.selected.insert(process.pid, identity);
-                    continue;
-                }
-            }
-            unresolved.push(name);
-        }
-        self.missing = unresolved;
     }
 
     fn save_names(&mut self) {
@@ -273,9 +326,11 @@ impl Controller {
             .map(|p| p.name.clone())
             .chain(self.missing.iter().cloned())
             .collect();
+        self.settings.remembered_program = self.recent_source_marker();
     }
 
     fn process_list(&mut self, view: &View) {
+        let mut widest = 0usize;
         self.visible.clear();
         msg(view, PROCESS_LIST, LB_RESETCONTENT, 0, 0);
         for (index, process) in self.processes.iter().enumerate() {
@@ -283,13 +338,22 @@ impl Controller {
                 && self.discovery_warning.is_none()
                 && !process.active
                 && !self.selected.contains_key(&process.pid)
+                && !self
+                    .missing
+                    .iter()
+                    .any(|name| process.name.eq_ignore_ascii_case(name))
             {
                 continue;
             }
+            let path = self
+                .recent_image(process.pid)
+                .map(|path| format!("  |  {}", path.display()))
+                .unwrap_or_default();
             let row = format!(
-                "{}  |  PID {}  |  {}",
+                "{}  |  PID {}  |  {}{path}",
                 process.name, process.pid, process.title
             );
+            widest = widest.max(row.encode_utf16().count());
             let n = msg(
                 view,
                 PROCESS_LIST,
@@ -304,6 +368,15 @@ impl Controller {
                 }
             }
         }
+        let dpi =
+            unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForWindow(view.hwnd) }.max(96) as usize;
+        msg(
+            view,
+            PROCESS_LIST,
+            0x0194,
+            widest.saturating_mul(12 * dpi) / 96,
+            0,
+        );
     }
 
     fn update_selection(&mut self, view: &View) {
@@ -371,7 +444,12 @@ impl Controller {
             0,
         );
         combo(view, CHANNEL, &["Mono", "Stereo"], 0);
+        if let Ok(exe) = std::env::current_exe() {
+            self.load_startup_transcription_config(view, &exe);
+        }
         self.sync_full(view);
+        self.initialize_recents(view);
+        self.update_timer(view);
     }
 
     fn sync_full(&mut self, view: &View) {
@@ -434,7 +512,8 @@ impl Controller {
         self.encoding_enabled(view);
     }
 
-    fn sync_profile(&self, view: &View) {
+    fn sync_profile(&mut self, view: &View) {
+        self.encoding_summary = encoding_label(&self.settings);
         let matched = prefs::matched_encoding_profile(&self.settings);
         let index = matched
             .and_then(|matched| prefs::ENCODING_PROFILES.iter().position(|p| p == matched))
@@ -494,7 +573,7 @@ impl Controller {
     }
 
     fn encoding_enabled(&self, view: &View) {
-        let idle = self.session.is_none();
+        let idle = self.session.is_none() && self.live.is_none();
         let wav = self.settings.format == "wav";
         enabled(view, PROFILE, idle);
         enabled(view, FORMAT, idle);
@@ -530,7 +609,9 @@ impl Controller {
     }
 
     fn state_controls(&self, view: &View) {
-        let running = self.session.is_some();
+        let running = self.session.is_some() || self.live.is_some();
+        let recording = self.recording();
+        let monitoring = self.settings.monitor_only && self.session.is_some();
         for id in [
             PRESET,
             SAVE,
@@ -552,22 +633,118 @@ impl Controller {
         ] {
             enabled(view, id, !running);
         }
-        enabled(view, START, !running);
-        enabled(view, STOP, running);
-        enabled(view, PAUSE, running);
-        enabled(view, MARK, running && !self.settings.monitor_only);
         enabled(
             view,
-            TRANSCRIBE_FILES,
-            accepts_command(TRANSCRIBE_FILES, running),
+            START,
+            !self.closing && (recording || monitoring || self.retiring.len() < 4),
         );
-        set_text(view, PAUSE, if self.paused { "Resume" } else { "Pause" });
+        set_changed(
+            view,
+            START,
+            if monitoring {
+                "Stop monitoring"
+            } else if recording {
+                "Stop recording"
+            } else {
+                "Start recording"
+            },
+        );
+        enabled(view, STOP, recording || monitoring);
+        enabled(view, PAUSE, recording || monitoring);
+        enabled(view, MARK, recording && !self.settings.monitor_only);
+        enabled(view, TRANSCRIBE_FILES, !self.closing);
+        enabled(view, BATCH_MANAGE, !self.closing);
+        enabled(view, LIVE_TOGGLE, !self.closing && !monitoring);
+        let started = self.live.as_ref().is_some_and(|w| w.started.is_some());
+        let waiting = self.live.is_some() && !started;
+        set_changed(
+            view,
+            LIVE_TOGGLE,
+            if waiting {
+                "Cancel transcription start"
+            } else if started {
+                "Stop transcription"
+            } else {
+                "Start transcription"
+            },
+        );
+        enabled(view, STOP_BOTH, recording && started);
+
+        let can_configure = self.live.is_none() && !self.closing;
+        for id in [
+            LIVE_ENDPOINT,
+            LIVE_MODEL,
+            LIVE_KEY_ENV,
+            LIVE_OUTPUT_DIR,
+            LIVE_BROWSE,
+            LIVE_TIMESTAMPS,
+            LOAD_LIVE_CONFIG,
+            SAVE_LIVE_CONFIG,
+        ] {
+            enabled(view, id, can_configure);
+        }
+        self.recent_controls(view);
+        enabled(
+            view,
+            LIVE_GATE,
+            can_configure && audio_capture::live_wire::QUALIFIED_LIVE_GATE,
+        );
+        enabled(
+            view,
+            LIVE_SPEAKER_CONFIG,
+            can_configure && audio_capture::live_wire::QUALIFIED_LIVE_SPEAKERS,
+        );
+        enabled(
+            view,
+            LIVE_SPEAKERS,
+            !waiting && !self.closing && audio_capture::live_wire::QUALIFIED_LIVE_SPEAKERS,
+        );
+        enabled(view, LIVE_CANCEL_PENDING, !self.finishing.is_empty());
+        view.set_visible(
+            LIVE_PREVIEW,
+            self.live.is_some() || !self.finishing.is_empty() || self.last_live.path.is_some(),
+        );
+        let has_path = self.displayed_path().is_some();
+        enabled(view, LIVE_OPEN_TEXT, has_path);
+        enabled(view, LIVE_OPEN_FOLDER, has_path);
+        set_changed(
+            view,
+            PAUSE,
+            if self.paused {
+                "Resume recording"
+            } else {
+                "Pause recording"
+            },
+        );
         self.encoding_enabled(view);
     }
 
     fn show_status(&self, view: &View) {
-        let status = if let Some(session) = &self.session {
-            session.status()
+        let status = if self.recording() || (self.settings.monitor_only && self.session.is_some()) {
+            let elapsed = self
+                .recording_started
+                .map(|t| clock(t.elapsed().as_secs()))
+                .unwrap_or_default();
+            let state = self
+                .session
+                .as_ref()
+                .map(|s| s.status())
+                .unwrap_or_default();
+            if self.settings.monitor_only {
+                format!("{state}  {elapsed}  |  {}", self.settings.folder.display())
+            } else {
+                format!(
+                    "{state}  {elapsed}  |  {}  |  {}",
+                    self.encoding_summary,
+                    self.settings.folder.display()
+                )
+            }
+        } else if self.status.is_empty() {
+            format!(
+                "Ready  |  {}  |  {}",
+                self.encoding_summary,
+                self.settings.folder.display()
+            )
         } else {
             self.status.clone()
         };
@@ -589,10 +766,48 @@ impl Controller {
         } else {
             status
         };
-        set_text(view, STATUS, &status);
+        let status = if let Some(warning) = &self.recording_warning {
+            format!("{status}  |  {warning}")
+        } else {
+            status
+        };
+        set_changed(view, STATUS, &status);
+        let summary = self.scope_summary();
+        set_changed(
+            view,
+            SOURCE_SUMMARY,
+            if summary.is_empty() {
+                "Select a program or microphone"
+            } else {
+                &summary
+            },
+        );
+        self.show_live(view);
     }
 
-    fn start(&mut self) -> Result<(), String> {
+    fn confirm_source_selection(&mut self, view: &View) -> bool {
+        if self.missing.is_empty() {
+            return true;
+        }
+        let prompt = format!(
+            "These saved programs are unavailable or ambiguous: {}. Clear them and continue with the selected sources?",
+            self.missing.join(", ")
+        );
+        let confirmed = unsafe {
+            MessageBoxW(
+                view.hwnd,
+                wide(&prompt).as_ptr(),
+                wide("Unresolved programs").as_ptr(),
+                0x124,
+            )
+        } == 6;
+        if confirmed {
+            self.missing.clear();
+        }
+        confirmed
+    }
+
+    fn config(&self) -> Result<record::Config, String> {
         if !self.missing.is_empty() {
             return Err(format!(
                 "Select the unresolved programs or clear them when prompted: {}",
@@ -608,8 +823,20 @@ impl Controller {
             if sources::process_identity(p.pid).ok() != self.selected.get(&p.pid).copied() {
                 return Err(format!("{} exited. Refresh and select it again.", p.name));
             }
+            let same_name = self
+                .processes
+                .iter()
+                .filter(|q| {
+                    self.selected.contains_key(&q.pid) && q.name.eq_ignore_ascii_case(&p.name)
+                })
+                .count();
+            let label = if same_name > 1 {
+                format!("{} (PID {})", p.name, p.pid)
+            } else {
+                p.name.clone()
+            };
             inputs.push((
-                p.name.clone(),
+                label,
                 capture::Input::SelectedProcess {
                     pid: p.pid,
                     created: self.selected[&p.pid],
@@ -657,23 +884,105 @@ impl Controller {
             monitor: self.settings.monitor.clone(),
             monitor_only: self.settings.monitor_only,
         };
-        self.save_names();
-        if !self.settings_load_failed {
-            prefs::save(&self.settings)?;
+        if config.inputs.is_empty() {
+            return Err("Select a program, microphone, or system audio first.".into());
         }
-        self.session = Some(record::Session::start(config)?);
+        Ok(config)
+    }
+
+    fn recording(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| s.recording())
+    }
+
+    fn start_recording(&mut self) -> Result<(), String> {
+        if self.session.is_none() && self.retiring.len() >= 4 {
+            return Err("Wait for a previous recording to finish saving.".into());
+        }
+        if let Some(session) = &self.session {
+            session.start_recording()?;
+        } else {
+            self.session = Some(record::Session::start(self.config()?)?);
+        }
+        self.recording_started = Some(Instant::now());
+        self.encoding_summary = encoding_label(&self.settings);
+        self.recording_warning = None;
         self.marker_count = 0;
         self.paused = false;
+        self.remember_selection();
         Ok(())
     }
 
+    fn scope_summary(&self) -> String {
+        let mut names: Vec<_> = self
+            .processes
+            .iter()
+            .filter(|p| self.selected.contains_key(&p.pid))
+            .map(|p| format!("{} (PID {})", p.name, p.pid))
+            .collect();
+        if self.settings.system {
+            names.push("System audio".into());
+        }
+        if let Some(id) = &self.settings.mic {
+            let name = self
+                .inputs
+                .iter()
+                .find(|(key, _)| key == id)
+                .map(|(_, name)| name.as_str())
+                .unwrap_or("Unavailable");
+            names.push(format!("Microphone: {name}"));
+        }
+        names.join(" · ")
+    }
+
+    fn update_timer(&self, view: &View) {
+        let needed = !self.close_ready() || self.recents.needs_tick();
+        if self.timer_on.get() == needed {
+            return;
+        }
+        unsafe {
+            if needed {
+                self.timer_on
+                    .set(SetTimer(view.hwnd, SESSION_TIMER, 250, ptr::null()) != 0);
+            } else {
+                KillTimer(view.hwnd, SESSION_TIMER);
+                self.timer_on.set(false);
+            }
+        }
+    }
+
     pub fn command(&mut self, view: &View, id: i32, notification: u16) {
-        if id == PROCESS_LIST && notification == LBN_SELCHANGE {
+        let locked = self.session.is_some() || self.live.is_some();
+        if self.closing {
+            if notification == BN_CLICKED
+                && matches!(id, LIVE_CANCEL_PENDING | LIVE_OPEN_TEXT | LIVE_OPEN_FOLDER)
+            {
+                self.live_command(view, id);
+                self.show_status(view);
+            }
+            return;
+        }
+        if self.recent_command(view, id, notification) {
+            self.update_timer(view);
+            return;
+        }
+        if !locked
+            && [SYSTEM, MIC, PROCESS_LIST, LOAD].contains(&id)
+            && [LBN_SELCHANGE, BN_CLICKED].contains(&notification)
+        {
+            self.recents.manual_source_choice();
+        }
+        if !locked
+            && ((id == MIC && notification == CBN_SELCHANGE)
+                || (id == SYSTEM && notification == BN_CLICKED))
+        {
+            self.read_controls(view);
+        }
+        if !locked && id == PROCESS_LIST && notification == LBN_SELCHANGE {
             self.update_selection(view);
             self.show_status(view);
             return;
         }
-        if !accepts_command(id, self.session.is_some()) {
+        if !accepts_command(id, locked) {
             return;
         }
         if id == PROFILE && notification == CBN_SELCHANGE {
@@ -720,8 +1029,8 @@ impl Controller {
             self.process_list(view);
         } else if id == REFRESH && notification == BN_CLICKED {
             self.read_controls(view);
-            self.refresh();
-            self.sync_full(view);
+            self.refresh_recent_sources(view);
+            self.update_timer(view);
         } else if id == BROWSE && notification == BN_CLICKED {
             if let Some(path) = rfd::FileDialog::new()
                 .set_directory(text(view, FOLDER))
@@ -733,6 +1042,36 @@ impl Controller {
         } else if id == TRANSCRIBE_FILES && notification == BN_CLICKED {
             transcribe_files(view);
             return;
+        } else if id == BATCH_MANAGE && notification == BN_CLICKED {
+            if let Err(error) = launch_batch_manager() {
+                self.status = error;
+            }
+        } else if id == LIVE_BROWSE && self.live.is_none() && notification == BN_CLICKED {
+            if let Some(folder) = rfd::FileDialog::new()
+                .set_directory(text(view, FOLDER))
+                .pick_folder()
+            {
+                set_text(view, LIVE_OUTPUT_DIR, &folder.to_string_lossy());
+            }
+        } else if matches!(id, LOAD_LIVE_CONFIG | SAVE_LIVE_CONFIG)
+            && self.live.is_none()
+            && notification == BN_CLICKED
+        {
+            self.transcription_config_command(view, id);
+        } else if [
+            LIVE_TOGGLE,
+            STOP_BOTH,
+            LIVE_SPEAKERS,
+            LIVE_CANCEL_PENDING,
+            LIVE_OPEN_TEXT,
+            LIVE_OPEN_FOLDER,
+        ]
+        .contains(&id)
+            && notification == BN_CLICKED
+        {
+            self.live_command(view, id);
+            self.state_controls(view);
+            self.update_timer(view);
         } else if [SAVE, LOAD, DELETE].contains(&id) && notification == BN_CLICKED {
             self.read_controls(view);
             let name = text(view, PRESET);
@@ -744,7 +1083,6 @@ impl Controller {
                     self.settings = settings;
                     self.missing = self.settings.process_names.clone();
                     self.selected.clear();
-                    self.resolve_names();
                     "Setup loaded".to_owned()
                 })
             } else {
@@ -766,33 +1104,18 @@ impl Controller {
             self.sync_full(view);
             set_text(view, PRESET, &name);
         } else if id == START && notification == BN_CLICKED {
-            self.read_controls(view);
-            if !self.missing.is_empty() {
-                let prompt = format!(
-                    "These saved programs are unavailable or ambiguous: {}. Clear them and continue?",
-                    self.missing.join(", ")
-                );
-                if unsafe {
-                    MessageBoxW(
-                        view.hwnd as Hwnd,
-                        wide(&prompt).as_ptr(),
-                        wide("Unresolved programs").as_ptr(),
-                        0x24,
-                    )
-                } != 6
-                {
-                    return;
-                }
-                self.missing.clear();
+            if self.recording() || (self.settings.monitor_only && self.session.is_some()) {
+                self.stop_recording(view);
+                return;
             }
-            if let Err(error) = self.start() {
+            self.read_controls(view);
+            if !self.confirm_source_selection(view) {
+                return;
+            }
+            if let Err(error) = self.start_recording() {
                 self.status = error;
             }
-            if self.session.is_some() {
-                unsafe {
-                    SetTimer(view.hwnd as Hwnd, SESSION_TIMER, 250, ptr::null());
-                }
-            }
+            self.update_timer(view);
             self.state_controls(view);
         } else if id == PAUSE && notification == BN_CLICKED {
             if let Some(session) = &self.session {
@@ -816,51 +1139,175 @@ impl Controller {
                 }
             }
         } else if id == STOP && notification == BN_CLICKED {
-            self.stop(view);
+            self.stop_recording(view);
         }
         self.show_status(view);
     }
 
-    fn stop(&mut self, view: &View) {
-        unsafe {
-            KillTimer(view.hwnd as Hwnd, SESSION_TIMER);
-        }
-        if let Some(mut session) = self.session.take() {
-            self.status = match session.stop() {
-                Ok(()) => session.status(),
-                Err(error) => error,
-            };
-        }
-        self.paused = false;
-        set_levels(view, "Source levels appear while recording.");
-        self.state_controls(view);
-    }
-
-    pub fn tick(&mut self, view: &View) {
+    fn retire_if_stopped(&mut self) {
         if self
             .session
             .as_ref()
-            .is_some_and(|session| session.is_finished())
+            .is_some_and(|s| !s.recording() && !s.transcribing())
         {
-            self.stop(view);
+            self.retiring
+                .push(self.session.take().expect("stopped capture"));
         }
+    }
+
+    fn stop_recording(&mut self, view: &View) {
+        if let Some(session) = &self.session {
+            let stop = if self.settings.monitor_only {
+                session.stop_both()
+            } else {
+                session.stop_recording()
+            };
+            if let Err(error) = stop {
+                self.status = error;
+                self.show_status(view);
+                return;
+            }
+        }
+        self.status = if self.settings.monitor_only {
+            "Monitoring stopped".into()
+        } else {
+            format!("Finishing recording  |  {}", self.settings.folder.display())
+        };
+        self.retire_if_stopped();
+        self.recording_started = None;
+        self.paused = false;
+        self.state_controls(view);
+        self.show_status(view);
+    }
+
+    fn remember_close_error(&mut self, detail: &str) {
+        if self.closing && !self.close_errors.iter().any(|error| error == detail) {
+            self.close_errors.push(detail.to_owned());
+        }
+    }
+
+    fn recording_completed(&mut self, result: Result<PathBuf, String>) {
+        let status = match result {
+            Ok(path) => format!("Recording saved  |  {}", path.display()),
+            Err(error) => {
+                let detail = format!("Recording failed  |  {error}");
+                self.remember_close_error(&detail);
+                if self.recording() {
+                    self.recording_warning = Some(format!("Earlier recording failed: {error}"));
+                }
+                detail
+            }
+        };
+        if !self.recording() {
+            self.status = status;
+        }
+    }
+
+    fn session_ended(&mut self, mut session: record::Session) {
+        let joined = session.stop();
+        while let Some(result) = session.take_recording_result() {
+            self.recording_completed(result);
+        }
+        if let Err(error) = joined {
+            self.recording_completed(Err(error));
+        }
+    }
+
+    fn take_close_error(&mut self) -> Option<String> {
+        if self.close_errors.is_empty() {
+            return None;
+        }
+        if let Some(recovery) = self.close_recovery.take() {
+            self.last_live = recovery;
+            self.live_note = "Review transcript recovery".into();
+        }
+        self.closing = false;
+        let errors = std::mem::take(&mut self.close_errors).join("\n");
+        Some(format!(
+            "{errors}\n\nReview the output. Close the window again to exit."
+        ))
+    }
+
+    pub fn tick(&mut self, view: &View) {
+        if self.closing && (self.session.is_some() || self.live.is_some()) {
+            self.stop_both();
+        }
+        let sources_changed = self.poll_recent_sources(view);
+        if self.close_ready() && !self.closing && !sources_changed {
+            self.update_timer(view);
+            return;
+        }
+        let mut index = 0;
+        while index < self.retiring.len() {
+            if self.retiring[index].is_finished() {
+                let ended = self.retiring.remove(index);
+                self.session_ended(ended);
+            } else {
+                index += 1;
+            }
+        }
+        if self.session.as_ref().is_some_and(|s| s.is_finished()) {
+            if let Some(ended) = self.session.take() {
+                self.session_ended(ended);
+            }
+            self.paused = false;
+            self.recording_started = None;
+            set_levels(view, "Source levels appear during capture.");
+        }
+        if self.recording_started.is_some() && !self.settings.monitor_only && !self.recording() {
+            self.recording_started = None;
+            if let Some(session) = &self.session {
+                self.status = session.status();
+            }
+        }
+        self.poll_live(view);
         if let Some(session) = &self.session {
             set_levels(view, &session.levels());
+            if let Some(result) = session.take_recording_result() {
+                self.recording_completed(result);
+            }
         }
+        self.state_controls(view);
         self.show_status(view);
+        self.update_timer(view);
+        if self.closing && self.close_ready() {
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW(
+                    view.hwnd,
+                    windows_sys::Win32::UI::WindowsAndMessaging::WM_CLOSE,
+                    0,
+                    0,
+                );
+            }
+        }
+    }
+
+    pub fn close_ready(&self) -> bool {
+        self.session.is_none()
+            && self.live.is_none()
+            && self.finishing.is_empty()
+            && self.retiring.is_empty()
     }
 
     pub fn shutdown(&mut self, view: &View) -> Result<(), String> {
         let mut errors = Vec::new();
-        if let Some(mut session) = self.session.take() {
-            unsafe {
-                KillTimer(view.hwnd as Hwnd, SESSION_TIMER);
+        if !self.close_ready() {
+            if !self.closing {
+                self.closing = true;
+                self.stop_both();
+                self.state_controls(view);
+                self.show_status(view);
+                self.update_timer(view);
             }
-            if let Err(error) = session.stop() {
-                errors.push(format!("Recording: {error}"));
-            }
+            return Ok(());
         }
         self.paused = false;
+        if let Some(error) = self.take_close_error() {
+            self.status = error.clone();
+            self.state_controls(view);
+            self.show_status(view);
+            return Err(error);
+        }
         self.read_controls(view);
         self.save_names();
         if !self.settings_load_failed {
@@ -871,6 +1318,7 @@ impl Controller {
         if errors.is_empty() {
             Ok(())
         } else {
+            self.closing = false;
             let error = errors.join("\n");
             self.status = error.clone();
             self.state_controls(view);
@@ -885,9 +1333,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn transcription_is_available_only_without_an_active_session() {
+    fn close_reports_failed_publication_once_and_restores_the_recovery_path() {
+        let mut app = Controller::from_settings(prefs::Settings::default(), String::new(), false);
+        app.closing = true;
+        app.recording_completed(Err("first.wav: disk full".into()));
+        let partial = PathBuf::from("first.partial.txt");
+        app.transcript_completed(
+            LiveStatus {
+                path: Some(partial.clone()),
+                ..Default::default()
+            },
+            Some("Output folder is unavailable".into()),
+        );
+        app.recording_completed(Ok(PathBuf::from("second.wav")));
+        app.transcript_completed(
+            LiveStatus {
+                state: "complete".into(),
+                path: Some("second.txt".into()),
+                ..Default::default()
+            },
+            None,
+        );
+        let error = app
+            .take_close_error()
+            .expect("A failed save must interrupt close");
+        assert!(error.contains("first.wav: disk full"));
+        assert!(error.contains("Output folder is unavailable"));
+        assert!(error.contains("first.partial.txt"));
+        assert_eq!(app.displayed_path(), Some(partial));
+        assert!(!app.closing);
+        assert!(app.close_ready());
+        assert!(
+            app.take_close_error().is_none(),
+            "An explicit second close can exit"
+        );
+    }
+
+    #[test]
+    fn completed_file_and_live_controls_are_available_during_recording() {
         assert!(accepts_command(TRANSCRIBE_FILES, false));
-        assert!(!accepts_command(TRANSCRIBE_FILES, true));
+        assert!(accepts_command(TRANSCRIBE_FILES, true));
+        assert!(accepts_command(LIVE_TOGGLE, true));
+        assert!(accepts_command(STOP_BOTH, true));
+        assert!(accepts_command(LOAD_LIVE_CONFIG, true));
+        assert!(accepts_command(SAVE_LIVE_CONFIG, true));
+        assert!(!accepts_command(PROCESS_LIST, true));
         for id in [PAUSE, STOP, MARK] {
             assert!(accepts_command(id, true));
         }
@@ -928,6 +1418,25 @@ mod tests {
         select_format(&mut settings, 2);
         assert_eq!(settings.format, "opus");
         assert_eq!(settings.opus_kbps, 32);
+    }
+
+    #[test]
+    fn recording_readout_preserves_profile_and_shows_effective_wav_rate() {
+        let mut settings = prefs::Settings::default();
+        let original = settings.clone();
+        assert_eq!(encoding_label(&settings), "Speech (Opus 32 kbps mono)");
+        assert_eq!(settings, original);
+        settings.format = "opus-speech".into();
+        assert_eq!(encoding_label(&settings), "Speech DTX (Opus 32 kbps mono)");
+        settings.format = "wav".into();
+        settings.wav_rate = 16_000;
+        assert_eq!(encoding_label(&settings), "WAV 16000 Hz mono");
+        settings.wav_rate = 0;
+        assert_eq!(encoding_label(&settings), "WAV 48000 Hz mono (Auto)");
+        assert_eq!(settings.wav_rate, 0);
+        settings.channels = 2;
+        settings.wav_rate = 44_100;
+        assert_eq!(encoding_label(&settings), "WAV 44100 Hz stereo");
     }
 
     #[test]

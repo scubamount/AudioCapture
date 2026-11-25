@@ -8,13 +8,13 @@ use std::ffi::c_void;
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
-use std::net::IpAddr;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+pub use audio_capture::transcription_endpoint::{Endpoint, canonical_key, endpoint};
 use windows_sys::Win32::Networking::WinHttp::*;
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -43,14 +43,6 @@ impl FromStr for ProviderProfile {
             )),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Endpoint {
-    host: String,
-    port: u16,
-    path: String,
-    secure: bool,
 }
 
 #[derive(Debug)]
@@ -85,90 +77,6 @@ fn windows_error(operation: &str, may_have_been_processed: bool) -> TransportErr
         format!("{operation}: {}", std::io::Error::last_os_error()),
         may_have_been_processed,
     )
-}
-
-/// Parse an API base URL and preserve any reverse-proxy path prefix.
-pub fn endpoint(base: &str, allow_http: bool) -> Result<Endpoint, String> {
-    if base.chars().any(|c| c.is_control() || c.is_whitespace()) || base.contains(['?', '#', '\\'])
-    {
-        return Err("Endpoint URL contains unsupported characters".into());
-    }
-    let (secure, rest, default_port) = if let Some(rest) = base.strip_prefix("https://") {
-        (true, rest, 443)
-    } else if let Some(rest) = base.strip_prefix("http://") {
-        (false, rest, 80)
-    } else {
-        return Err("Endpoint must use HTTP or HTTPS".into());
-    };
-    let (authority, prefix) = match rest.split_once('/') {
-        Some((host, path)) => (host, format!("/{path}")),
-        None => (rest, String::new()),
-    };
-    if authority.is_empty() || authority.contains(['@', '%']) {
-        return Err("Endpoint has an invalid host or embedded credentials".into());
-    }
-    let (host, port) = if let Some(ipv6) = authority.strip_prefix('[') {
-        let (host, suffix) = ipv6.split_once(']').ok_or("Invalid IPv6 endpoint")?;
-        let _: std::net::Ipv6Addr = host.parse().map_err(|_| "Invalid IPv6 endpoint")?;
-        let port = if suffix.is_empty() {
-            default_port
-        } else {
-            parse_port(suffix.strip_prefix(':').ok_or("Invalid endpoint port")?)?
-        };
-        (host.to_string(), port)
-    } else {
-        let (host, port) = match authority.split_once(':') {
-            Some((host, port)) => (host, parse_port(port)?),
-            None => (authority, default_port),
-        };
-        if host.is_empty()
-            || !host.is_ascii()
-            || !host
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
-        {
-            return Err("Invalid endpoint host".into());
-        }
-        (host.to_string(), port)
-    };
-    let loopback = host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<IpAddr>()
-            .map(|ip| ip.is_loopback())
-            .unwrap_or(false);
-    if !secure && !loopback && !allow_http {
-        return Err("Non-loopback HTTP requires --allow-http".into());
-    }
-    if prefix.split('/').any(|part| part == "." || part == "..") {
-        return Err("Endpoint path cannot contain dot segments".into());
-    }
-    let path = format!("{}/audio/transcriptions", prefix.trim_end_matches('/'));
-    Ok(Endpoint {
-        host,
-        port,
-        path,
-        secure,
-    })
-}
-
-/// Identify the effective destination, including its service path.
-pub fn canonical_key(endpoint: &Endpoint) -> String {
-    let scheme = if endpoint.secure { "https" } else { "http" };
-    let host = endpoint.host.to_ascii_lowercase();
-    let authority = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host
-    };
-    format!("{scheme}://{authority}:{}{}", endpoint.port, endpoint.path)
-}
-
-fn parse_port(port: &str) -> Result<u16, String> {
-    let port: u16 = port.parse().map_err(|_| "Invalid endpoint port")?;
-    if port == 0 {
-        return Err("Invalid endpoint port".into());
-    }
-    Ok(port)
 }
 
 fn wide(value: &str) -> Vec<u16> {
@@ -226,8 +134,15 @@ fn add_field(buffer: &mut Vec<u8>, boundary: &str, name: &str, value: &str) {
     );
 }
 
-fn write_all(request: &Handle, mut data: &[u8]) -> Result<(), TransportError> {
+fn write_all(
+    request: &Handle,
+    mut data: &[u8],
+    deadline: Option<Instant>,
+) -> Result<(), TransportError> {
     while !data.is_empty() {
+        if deadline.is_some() {
+            request_timeouts(request, deadline, true)?;
+        }
         let mut written = 0;
         let length = data.len().min(u32::MAX as usize) as u32;
         let ok = unsafe { WinHttpWriteData(request.0, data.as_ptr().cast(), length, &mut written) };
@@ -301,6 +216,137 @@ pub fn transcribe(
     timestamps: bool,
     profile: Option<ProviderProfile>,
 ) -> Result<Response, TransportError> {
+    transcribe_file(
+        endpoint, model, key, language, file, timestamps, profile, None,
+    )
+}
+
+pub fn transcribe_until(
+    endpoint: &Endpoint,
+    model: &str,
+    key: Option<&str>,
+    language: Option<&str>,
+    file: &Path,
+    timestamps: bool,
+    profile: Option<ProviderProfile>,
+    deadline: Instant,
+) -> Result<Response, TransportError> {
+    transcribe_file(
+        endpoint,
+        model,
+        key,
+        language,
+        file,
+        timestamps,
+        profile,
+        Some(deadline),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transcribe_file(
+    endpoint: &Endpoint,
+    model: &str,
+    key: Option<&str>,
+    language: Option<&str>,
+    file: &Path,
+    timestamps: bool,
+    profile: Option<ProviderProfile>,
+    deadline: Option<Instant>,
+) -> Result<Response, TransportError> {
+    let extension = file_type(file)?;
+    let mut input =
+        File::open(file).map_err(|e| error(format!("Cannot open audio: {e}"), false))?;
+    let metadata = input
+        .metadata()
+        .map_err(|e| error(format!("Cannot inspect audio: {e}"), false))?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err(error("Audio must be a nonempty regular file", false));
+    }
+    post_audio(
+        endpoint,
+        model,
+        key,
+        language,
+        extension,
+        &mut input,
+        metadata.len(),
+        timestamps,
+        profile,
+        deadline,
+        None,
+    )
+}
+
+/// Live chunks remain in memory. The filename never includes the original source identity.
+pub(super) fn transcribe_wav(
+    endpoint: &Endpoint,
+    model: &str,
+    key: Option<&str>,
+    language: Option<&str>,
+    mut wav: &[u8],
+    timestamps: bool,
+    profile: Option<ProviderProfile>,
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Response, TransportError> {
+    let length = wav.len() as u64;
+    post_audio(
+        endpoint,
+        model,
+        key,
+        language,
+        "wav",
+        &mut wav,
+        length,
+        timestamps,
+        profile,
+        Some(deadline),
+        Some(cancelled),
+    )
+}
+
+fn request_timeouts(
+    handle: &Handle,
+    deadline: Option<Instant>,
+    sent: bool,
+) -> Result<(), TransportError> {
+    let cap = match deadline {
+        Some(at) => at
+            .checked_duration_since(Instant::now())
+            .map(|d| d.as_millis().clamp(1, i32::MAX as u128) as i32)
+            .ok_or_else(|| error("Transcription request reached its deadline", sent))?,
+        None => i32::MAX,
+    };
+    if unsafe {
+        WinHttpSetTimeouts(
+            handle.0,
+            15_000.min(cap),
+            30_000.min(cap),
+            120_000.min(cap),
+            120_000.min(cap),
+        )
+    } == 0
+    {
+        return Err(windows_error("Cannot configure HTTP timeouts", sent));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn post_audio(
+    endpoint: &Endpoint,
+    model: &str,
+    key: Option<&str>,
+    language: Option<&str>,
+    extension: &str,
+    input: &mut dyn Read,
+    length: u64,
+    timestamps: bool,
+    profile: Option<ProviderProfile>,
+    deadline: Option<Instant>,
+    cancelled: Option<&dyn Fn() -> bool>,
+) -> Result<Response, TransportError> {
     if timestamps && profile.is_some() {
         return Err(error(
             "Choose either timestamps or a provider profile",
@@ -314,15 +360,6 @@ pub fn transcribe(
         .is_some_and(|value| value.is_empty() || !value.bytes().all(|c| (0x21..=0x7e).contains(&c)))
     {
         return Err(error("Invalid API key", false));
-    }
-    let extension = file_type(file)?;
-    let mut input =
-        File::open(file).map_err(|e| error(format!("Cannot open audio: {e}"), false))?;
-    let metadata = input
-        .metadata()
-        .map_err(|e| error(format!("Cannot inspect audio: {e}"), false))?;
-    if !metadata.is_file() || metadata.len() == 0 {
-        return Err(error("Audio must be a nonempty regular file", false));
     }
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -352,7 +389,7 @@ pub fn transcribe(
     ).as_bytes());
     let suffix = format!("\r\n--{boundary}--\r\n");
     let total = (prefix.len() as u64)
-        .checked_add(metadata.len())
+        .checked_add(length)
         .and_then(|n| n.checked_add(suffix.len() as u64))
         .and_then(|n| u32::try_from(n).ok())
         .ok_or_else(|| error("Audio exceeds WinHTTP request size", false))?;
@@ -370,9 +407,7 @@ pub fn transcribe(
         },
         "Cannot initialize HTTP",
     )?;
-    if unsafe { WinHttpSetTimeouts(session.0, 15_000, 30_000, 120_000, 120_000) } == 0 {
-        return Err(windows_error("Cannot configure HTTP timeouts", false));
-    }
+    request_timeouts(&session, deadline, false)?;
     let host = wide(&endpoint.host);
     let connection = Handle::new(
         unsafe { WinHttpConnect(session.0, host.as_ptr(), endpoint.port, 0) },
@@ -430,14 +465,25 @@ pub fn transcribe(
         headers.push_str(&format!("Authorization: Bearer {key}\r\n"));
     }
     let headers = wide(&headers);
+    if deadline.is_some() {
+        request_timeouts(&request, deadline, false)?;
+    }
+    // Finalization can cancel work after the journal commit and before this thread
+    // starts sending. A cancelled, unsent request has no unknown remote outcome.
+    if cancelled.is_some_and(|check| check()) {
+        return Err(error(
+            "Transcription request cancelled before submission",
+            false,
+        ));
+    }
     if unsafe { WinHttpSendRequest(request.0, headers.as_ptr(), u32::MAX, null(), 0, total, 0) }
         == 0
     {
         return Err(windows_error("Cannot begin transcription request", true));
     }
-    write_all(&request, &prefix)?;
+    write_all(&request, &prefix, deadline)?;
     let mut buffer = [0u8; BLOCK_SIZE];
-    let mut remaining = metadata.len();
+    let mut remaining = length;
     while remaining > 0 {
         let count = input
             .read(&mut buffer[..remaining.min(BLOCK_SIZE as u64) as usize])
@@ -445,10 +491,13 @@ pub fn transcribe(
         if count == 0 {
             return Err(error("Audio changed during upload", true));
         }
-        write_all(&request, &buffer[..count])?;
+        write_all(&request, &buffer[..count], deadline)?;
         remaining -= count as u64;
     }
-    write_all(&request, suffix.as_bytes())?;
+    write_all(&request, suffix.as_bytes(), deadline)?;
+    if deadline.is_some() {
+        request_timeouts(&request, deadline, true)?;
+    }
     if unsafe { WinHttpReceiveResponse(request.0, null_mut()) } == 0 {
         return Err(windows_error("Cannot receive transcription response", true));
     }
@@ -462,6 +511,9 @@ pub fn transcribe(
     let content_type = query_content_type(&request)?;
     let mut body = Vec::new();
     loop {
+        if deadline.is_some() {
+            request_timeouts(&request, deadline, true)?;
+        }
         let mut read = 0;
         if unsafe {
             WinHttpReadData(
@@ -482,6 +534,9 @@ pub fn transcribe(
         }
         body.extend_from_slice(&buffer[..read as usize]);
     }
+    if deadline.is_some_and(|at| Instant::now() >= at) {
+        return Err(error("Transcription request reached its deadline", true));
+    }
     Ok(Response { content_type, body })
 }
 
@@ -491,6 +546,35 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn cancellation_after_journaling_sends_no_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let target = endpoint(
+            &format!("http://{}/v1", listener.local_addr().unwrap()),
+            false,
+        )
+        .unwrap();
+        let result = transcribe_wav(
+            &target,
+            "fixture",
+            None,
+            None,
+            b"bounded audio",
+            false,
+            None,
+            Instant::now() + std::time::Duration::from_secs(2),
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(!result.may_have_been_processed);
+        assert!(result.message.contains("cancelled before submission"));
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
 
     #[test]
     fn endpoint_checks_prefix_and_transport() {

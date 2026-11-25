@@ -1,6 +1,6 @@
 [package]
 name = "audio-capture"
-version = "2.0.0"
+version = "2.1.0-dev.3"
 edition = "2024"
 default-run = "audio-capture"
 publish = false
@@ -19,5 +19,6 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Wind
 
 [profile.release]
 strip = "symbols"
-lto = "thin"
+opt-level = "s"
+lto = "fat"
 codegen-units = 1

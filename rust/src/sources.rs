@@ -1,19 +1,31 @@
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
+use std::io::{Error, Read};
 use std::mem::size_of;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use wasapi::{DeviceEnumerator, Direction, SessionState};
-use windows::Win32::Foundation::{CloseHandle, FILETIME, HWND, LPARAM};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, HWND, LPARAM,
+};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{
-    GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetProcessTimes, OpenProcess, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
 };
-use windows::core::BOOL;
+use windows::core::{BOOL, PWSTR};
+use windows_sys::Win32::Security::Cryptography::{
+    CALG_SHA_256, CRYPT_VERIFYCONTEXT, CryptAcquireContextW, CryptCreateHash, CryptDestroyHash,
+    CryptGetHashParam, CryptHashData, CryptReleaseContext, HP_HASHVAL, PROV_RSA_AES,
+};
 
 #[derive(Clone, Debug)]
 pub struct Process {
@@ -25,19 +37,129 @@ pub struct Process {
 
 /// Identify a process instance without relying on its reusable PID.
 pub fn process_identity(pid: u32) -> Result<u64, String> {
-    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
+    with_process(pid, creation_time)
+}
+
+fn with_process<T>(
+    pid: u32,
+    inspect: impl FnOnce(HANDLE) -> Result<T, String>,
+) -> Result<T, String> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
         .map_err(|error| format!("Cannot inspect process {pid}: {error}"))?;
+    let result = inspect(handle);
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result
+}
+
+fn creation_time(process: HANDLE) -> Result<u64, String> {
     let mut created = FILETIME::default();
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
-    let result =
-        unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
-    unsafe {
-        let _ = CloseHandle(process);
-    }
-    result.map_err(|error| format!("Cannot inspect process {pid}: {error}"))?;
+    unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) }
+        .map_err(|error| format!("Cannot inspect process creation time: {error}"))?;
     Ok((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+}
+
+/// Read the creation time and image path using the same process handle.
+pub(crate) fn process_image(pid: u32) -> Result<(u64, PathBuf), String> {
+    with_process(pid, |process| {
+        let created = creation_time(process)?;
+        let mut path = vec![0u16; 512];
+        loop {
+            let mut size = path.len() as u32;
+            let result = unsafe {
+                QueryFullProcessImageNameW(
+                    process,
+                    PROCESS_NAME_FORMAT(0),
+                    PWSTR(path.as_mut_ptr()),
+                    &mut size,
+                )
+            };
+            match result {
+                Ok(()) => {
+                    let path = OsString::from_wide(&path[..size as usize]);
+                    return Ok((created, path.into()));
+                }
+                Err(error)
+                    if error.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult()
+                        && path.len() < 32_768 =>
+                {
+                    path.resize((path.len() * 2).min(32_768), 0);
+                }
+                Err(error) => {
+                    return Err(format!("Cannot identify the image for PID {pid}: {error}"));
+                }
+            }
+        }
+    })
+}
+
+/// Stream SHA-256 using Windows' existing cryptography provider.
+pub fn sha256(mut input: impl Read) -> Result<[u8; 32], String> {
+    struct Provider(usize);
+    impl Drop for Provider {
+        fn drop(&mut self) {
+            unsafe { CryptReleaseContext(self.0, 0) };
+        }
+    }
+    struct Hash(usize);
+    impl Drop for Hash {
+        fn drop(&mut self) {
+            unsafe { CryptDestroyHash(self.0) };
+        }
+    }
+
+    let mut provider = 0;
+    if unsafe {
+        CryptAcquireContextW(
+            &mut provider,
+            std::ptr::null(),
+            std::ptr::null(),
+            PROV_RSA_AES,
+            CRYPT_VERIFYCONTEXT,
+        )
+    } == 0
+    {
+        return Err(format!(
+            "Cannot open SHA-256 provider: {}",
+            Error::last_os_error()
+        ));
+    }
+    let provider = Provider(provider);
+    let mut hash = 0;
+    if unsafe { CryptCreateHash(provider.0, CALG_SHA_256, 0, 0, &mut hash) } == 0 {
+        return Err(format!(
+            "Cannot create SHA-256 hash: {}",
+            Error::last_os_error()
+        ));
+    }
+    let hash = Hash(hash);
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = input
+            .read(&mut buffer)
+            .map_err(|error| format!("Cannot read input for SHA-256: {error}"))?;
+        if count == 0 {
+            break;
+        }
+        if unsafe { CryptHashData(hash.0, buffer.as_ptr(), count as u32, 0) } == 0 {
+            return Err(format!("Cannot hash input: {}", Error::last_os_error()));
+        }
+    }
+    let mut bytes = [0u8; 32];
+    let mut length = bytes.len() as u32;
+    if unsafe { CryptGetHashParam(hash.0, HP_HASHVAL, bytes.as_mut_ptr(), &mut length, 0) } == 0
+        || length as usize != bytes.len()
+    {
+        return Err(format!(
+            "Cannot read SHA-256 result: {}",
+            Error::last_os_error()
+        ));
+    }
+    Ok(bytes)
 }
 
 // WASAPI objects stay on the fresh thread on which COM is initialized.
@@ -318,12 +440,30 @@ fn activity_with_warning(
 
 /// Enumerate processes even when some audio-session information is unavailable.
 pub fn processes_with_warnings() -> Result<(Vec<Process>, Option<String>), String> {
+    let snapshot = process_snapshot()?;
+    Ok((snapshot.processes, snapshot.warning))
+}
+
+pub(crate) struct ProcessSnapshot {
+    pub processes: Vec<Process>,
+    pub parents: HashMap<u32, u32>,
+    pub warning: Option<String>,
+    pub taken_at: u64,
+}
+
+pub(crate) fn process_snapshot() -> Result<ProcessSnapshot, String> {
     let (active, warning) = activity_with_warning(active_processes());
     let mut titles: HashMap<u32, String> = HashMap::new();
     unsafe {
         EnumWindows(Some(collect_window), LPARAM(&mut titles as *mut _ as isize))
             .map_err(|e| format!("Window enumeration failed: {e}"))?;
     }
+    // Process timestamps use 100 ns ticks since 1601. Keep the time of the
+    // snapshot so callers can reject a PID reused before its later inspection.
+    let unix_ticks = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| (elapsed.as_nanos() / 100) as u64);
+    let taken_at = unix_ticks.saturating_add(116_444_736_000_000_000);
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
         .map_err(|e| format!("Process enumeration failed: {e}"))?;
     let mut entry = PROCESSENTRY32W {
@@ -380,7 +520,12 @@ pub fn processes_with_warnings() -> Result<(Vec<Process>, Option<String>), Strin
             .cmp(&b.name.to_lowercase())
             .then(a.pid.cmp(&b.pid))
     });
-    Ok((processes, warning))
+    Ok(ProcessSnapshot {
+        processes,
+        parents,
+        warning,
+        taken_at,
+    })
 }
 
 #[cfg(test)]

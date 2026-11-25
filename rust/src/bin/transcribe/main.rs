@@ -1,7 +1,9 @@
 mod attribution;
+mod batch_queue;
 mod chunks;
 mod guided;
 mod jobs;
+mod live;
 mod review;
 mod transport;
 
@@ -13,7 +15,13 @@ const HELP: &str =
     "Usage: transcribe --base-url URL --model MODEL --output-dir DIR [options] FILE...
        transcribe --guided -- FILE...
 
-Transcribe completed files explicitly, one at a time.
+Guided mode loads transcription.json beside the executable when present.
+
+Live and queued transcription commands:
+  live                 Process a confirmed live audio pipe
+  recover-live         List, publish, or discard a recoverable transcript
+  refine-live          Review a finalized live transcript with optional saved audio
+  batch-queue          Inspect or control submitted file batches
 
 Speaker and memory commands (use COMMAND --help for details):
   prepare-session      Create a local session manifest with guided prompts
@@ -49,6 +57,12 @@ fn main() {
     let guided = args.next_if(|arg| arg == "--guided").is_some();
     let result = if guided {
         guided::run(args)
+    } else if args.next_if(|arg| arg == "live").is_some() {
+        live::run(args)
+    } else if args.next_if(|arg| arg == "recover-live").is_some() {
+        live::cache::recover_cli(args)
+    } else if args.next_if(|arg| arg == "batch-queue").is_some() {
+        batch_queue::run(args)
     } else if let Some(command) = args
         .peek()
         .and_then(|arg| arg.to_str())

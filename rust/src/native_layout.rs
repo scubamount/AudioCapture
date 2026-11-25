@@ -56,10 +56,65 @@ impl<'a, F: Fn(i32) -> bool> Rows<'a, F> {
         self.row_height = self.row_height.max(height);
     }
 
-    fn fill(&mut self, id: i32, reserved: i32, minimum: i32, height: i32) {
-        let available = (self.width - 20).max(1);
-        let preferred = (available - reserved).max(minimum).min(available);
-        self.add(id, preferred, height);
+    fn fill(&mut self, id: i32, height: i32) {
+        self.add(id, self.width - 20, height);
+    }
+
+    fn heading(&mut self, id: i32) {
+        self.fill(id, 21);
+        self.next();
+    }
+
+    fn field(
+        &mut self,
+        label: i32,
+        label_width: i32,
+        id: i32,
+        preferred: i32,
+        minimum: i32,
+        height: i32,
+    ) {
+        if !(self.visible)(id) {
+            self.add(label, label_width, 22);
+            return;
+        }
+        if !(self.visible)(label) {
+            self.add(id, preferred, height);
+            return;
+        }
+
+        let needed = label_width + 8 + minimum;
+        if self.x + needed > self.width - 10 {
+            self.next();
+        }
+        self.add(label, label_width, 22);
+        if needed > self.width - 20 {
+            self.next();
+        }
+        self.add(id, preferred.min((self.width - self.x - 10).max(1)), height);
+    }
+
+    fn path(&mut self, label: i32, label_width: i32, id: i32, browse: i32) {
+        const BROWSE_WIDTH: i32 = 81;
+        const MINIMUM_PATH: i32 = 112;
+        let available = self.width - 20 - label_width - 16 - BROWSE_WIDTH;
+        let preferred = if available < MINIMUM_PATH {
+            self.width
+        } else {
+            available
+        };
+        self.field(label, label_width, id, preferred, MINIMUM_PATH, 27);
+        self.add(browse, BROWSE_WIDTH, 27);
+    }
+
+    fn readout(&mut self, label: i32, label_width: i32, id: i32, height: i32) {
+        if self.width < 440 {
+            self.heading(label);
+            self.fill(id, height);
+        } else {
+            self.field(label, label_width, id, self.width, 139, height);
+        }
+        self.next();
     }
 
     fn next(&mut self) {
@@ -73,81 +128,117 @@ impl<'a, F: Fn(i32) -> bool> Rows<'a, F> {
 
 fn positions<F: Fn(i32) -> bool>(width: i32, visible: &F) -> (Vec<(i32, Rect)>, i32) {
     let mut row = Rows::new(width, visible);
+    let input = 27;
+    let button = 30;
 
-    row.add(PROFILE_LABEL, 115, 26);
-    row.add(PROFILE, PROFILE_WIDTH, 26);
+    row.heading(SOURCES_SECTION);
+    row.add(SELECT_PROGRAMS, 143, button);
+    row.add(RECENT_OPTIONS, 156, button);
     row.next();
-    row.fill(PROFILE_HELP, 0, 100, if width < 340 { 44 } else { 23 });
+    row.field(RECENT_LABEL, 105, RECENT_PICKER, 150, 140, input);
+    row.add(USE_RECENT, 94, input);
     row.next();
-
-    row.add(FORMAT_LABEL, 92, 26);
-    row.add(FORMAT, 235, 26);
-    if width < 570 {
-        row.next();
-    }
-    row.add(CHANNEL_LABEL, 92, 26);
-    row.add(CHANNEL, 105, 26);
+    row.add(AUTO_SELECT_RECENT, 144, input);
+    row.add(FORGET_RECENT, 99, input);
+    row.add(CLEAR_RECENT, 99, input);
     row.next();
-    row.add(BITRATE_LABEL, 155, 26);
-    row.add(BITRATE, 130, 26);
-    if width < 600 {
-        row.next();
-    }
-    row.add(SAMPLE_LABEL, 122, 26);
-    row.add(SAMPLE, 145, 26);
+    row.field(MIC_LABEL, 105, MIC, 290, 160, input);
     row.next();
-
-    row.add(START, 110, 30);
-    row.add(PAUSE, 110, 30);
-    row.add(STOP, 110, 30);
-    row.add(MARK, 110, 30);
-    row.add(TRANSCRIBE_FILES, 150, 30);
+    row.fill(SOURCE_SUMMARY, 21);
+    row.next();
+    row.fill(PROCESS_LABEL, if width < 300 { 35 } else { 22 });
+    row.next();
+    row.fill(PROCESS_LIST, 125);
+    row.next();
+    row.add(REFRESH, 86, input);
+    row.add(FILTER, 237, if width < 260 { 40 } else { input });
+    row.add(SYSTEM, 174, input);
     row.next();
 
-    row.add(PRESET_LABEL, 82, 25);
-    row.add(PRESET, 185, 25);
-    row.add(SAVE, 94, 25);
-    row.add(LOAD, 94, 25);
-    row.add(DELETE, 100, 25);
+    row.heading(RECORDING_SECTION);
+    row.add(START, 116, button);
+    row.add(PAUSE, 124, button);
+    row.add(MARK, 97, button);
+    row.add(RECORDING_SETTINGS, 159, button);
+    row.next();
+    row.readout(RECORDING_STATUS_LABEL, 107, STATUS, 58);
+
+    row.heading(LIVE_SECTION);
+    row.add(LIVE_TOGGLE, 167, button);
+    row.add(STOP_BOTH, 85, button);
+    row.add(TRANSCRIPTION_SETTINGS, 173, button);
+    row.next();
+    row.readout(LIVE_STATUS_LABEL, 122, LIVE_STATUS, 58);
+    row.add(LIVE_OPEN_TEXT, 111, input);
+    row.add(LIVE_OPEN_FOLDER, 94, input);
+    row.add(LIVE_CANCEL_PENDING, 156, input);
+    row.next();
+    row.readout(LIVE_PREVIEW_LABEL, 107, LIVE_PREVIEW, 106);
+
+    row.heading(BATCH_SECTION);
+    row.add(TRANSCRIBE_FILES, 145, button);
+    row.add(BATCH_MANAGE, 121, button);
     row.next();
 
-    row.add(PROCESS_LABEL, 320, if width < 340 { 44 } else { 23 });
+    row.heading(RECORDING_SETTINGS_SECTION);
+    row.field(PROFILE_LABEL, 114, PROFILE, PROFILE_WIDTH, 250, input);
     row.next();
-    row.fill(PROCESS_LIST, 0, 100, 132);
+    row.fill(PROFILE_HELP, if width < 475 { 40 } else { 23 });
     row.next();
-    row.add(REFRESH, 105, 26);
-    let checkbox_height = if width < 320 { 44 } else { 26 };
-    row.add(FILTER, 260, checkbox_height);
-    row.add(SYSTEM, 180, checkbox_height);
+    row.field(FORMAT_LABEL, 75, FORMAT, 214, 160, input);
+    row.field(CHANNEL_LABEL, 75, CHANNEL, 105, 90, input);
     row.next();
-
-    row.add(MIC_LABEL, 110, 26);
-    row.add(MIC, 230, 26);
-    row.next();
-    row.add(MONITOR_LABEL, 110, 26);
-    row.add(MONITOR, 230, 26);
-    row.add(MONITOR_ONLY, 170, checkbox_height);
-    row.next();
-    row.add(APP_GAIN_LABEL, 120, 26);
-    row.add(APP_GAIN, 230, 26);
-    row.next();
-    row.add(MIC_GAIN_LABEL, 120, 26);
-    row.add(MIC_GAIN, 230, 26);
+    row.field(BITRATE_LABEL, 154, BITRATE, 123, 88, input);
+    row.field(SAMPLE_LABEL, 112, SAMPLE, 140, 105, input);
     row.next();
 
-    row.add(MODE_LABEL, 110, 26);
-    row.add(MODE, 180, 26);
-    row.add(SILENCE, 170, checkbox_height);
+    row.field(PRESET_LABEL, 105, PRESET, 205, 111, input);
+    row.add(SAVE, 94, input);
+    row.add(LOAD, 94, input);
+    row.add(DELETE, 100, input);
     row.next();
-    row.add(FOLDER_LABEL, 100, 26);
-    row.fill(FOLDER, 205, 170, 26);
-    row.add(BROWSE, 90, 26);
+    row.field(MONITOR_LABEL, 110, MONITOR, 215, 137, input);
+    row.add(MONITOR_ONLY, 128, input);
     row.next();
-    row.add(LEVELS_LABEL, 130, 23);
+    row.field(APP_GAIN_LABEL, 125, APP_GAIN, 150, 103, input);
+    row.field(MIC_GAIN_LABEL, 125, MIC_GAIN, 150, 103, input);
     row.next();
-    row.fill(LEVELS, 0, 100, 96);
+    row.field(MODE_LABEL, 110, MODE, 171, 128, input);
+    row.add(SILENCE, 113, input);
     row.next();
-    row.fill(STATUS, 0, 100, 60);
+    row.path(FOLDER_LABEL, 110, FOLDER, BROWSE);
+    row.next();
+
+    row.heading(TRANSCRIPTION_SETTINGS_SECTION);
+    row.add(LOAD_LIVE_CONFIG, 125, input);
+    row.add(SAVE_LIVE_CONFIG, 125, input);
+    row.next();
+    row.field(LIVE_ENDPOINT_LABEL, 177, LIVE_ENDPOINT, width, 145, input);
+    row.next();
+    row.field(LIVE_MODEL_LABEL, 177, LIVE_MODEL, width, 145, input);
+    row.next();
+    row.field(LIVE_KEY_ENV_LABEL, 177, LIVE_KEY_ENV, width, 145, input);
+    row.next();
+    row.path(LIVE_OUTPUT_DIR_LABEL, 160, LIVE_OUTPUT_DIR, LIVE_BROWSE);
+    row.next();
+    row.add(LIVE_GATE, 205, input);
+    row.add(LIVE_TIMESTAMPS, 193, input);
+    row.next();
+    row.add(LIVE_SPEAKERS, 205, input);
+    row.next();
+    row.field(
+        LIVE_SPEAKER_CONFIG_LABEL,
+        177,
+        LIVE_SPEAKER_CONFIG,
+        width,
+        145,
+        input,
+    );
+    row.next();
+
+    row.fill(LEVELS_LABEL, 22);
+    row.next();
+    row.fill(LEVELS, 85);
     row.next();
     (row.rects, row.y + 3)
 }
@@ -195,62 +286,114 @@ mod tests {
         a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
     }
 
+    fn rect(rects: &[(i32, Rect)], id: i32) -> Rect {
+        rects.iter().find(|(control, _)| *control == id).unwrap().1
+    }
+
     #[test]
-    fn encoding_and_recording_controls_are_above_source_configuration() {
-        for width in [240, 480, 768, 1024] {
+    fn source_selection_and_both_activities_precede_advanced_settings() {
+        for width in [280, 390, 660, 1024] {
             let (rects, _) = positions(width, &|_| true);
-            let rect = |control| rects.iter().find(|(id, _)| *id == control).unwrap().1;
-            assert!(rect(PROFILE).y + rect(PROFILE).height <= rect(FORMAT).y);
-            assert!(rect(PROFILE_HELP).y + rect(PROFILE_HELP).height <= rect(FORMAT).y);
-            for control in [PROFILE, FORMAT, BITRATE, SAMPLE, CHANNEL, START, STOP] {
-                assert!(
-                    rect(control).y + rect(control).height <= rect(PROCESS_LIST).y,
-                    "control {control} must be above the program list at width {width}"
-                );
-            }
+            let y = |id| rect(&rects, id).y;
+            assert!(y(SELECT_PROGRAMS) < y(START));
+            assert!(y(MIC) < y(START));
+            assert!(y(START) < y(LIVE_TOGGLE));
+            assert!(y(LIVE_TOGGLE) < y(TRANSCRIBE_FILES));
+            assert!(y(TRANSCRIBE_FILES) < y(PROFILE));
+            assert!(y(PROFILE) < y(FORMAT));
+            assert!(y(FORMAT) < y(LIVE_ENDPOINT));
         }
     }
 
     #[test]
-    fn layout_keeps_all_visible_controls_separate_and_reachable() {
+    fn compact_layout_places_primary_actions_within_first_page() {
+        let hidden = [
+            AUTO_SELECT_RECENT,
+            FORGET_RECENT,
+            CLEAR_RECENT,
+            PROCESS_LABEL,
+            PROCESS_LIST,
+            REFRESH,
+            FILTER,
+            SYSTEM,
+            PAUSE,
+            MARK,
+            STOP_BOTH,
+            LIVE_OPEN_TEXT,
+            LIVE_OPEN_FOLDER,
+            LIVE_CANCEL_PENDING,
+            LIVE_PREVIEW_LABEL,
+            LIVE_PREVIEW,
+        ];
+        let settings = positions(390, &|_| true).0;
+        let first_advanced = settings
+            .iter()
+            .position(|(id, _)| *id == RECORDING_SETTINGS_SECTION)
+            .unwrap();
+        let visible = |id| {
+            !hidden.contains(&id)
+                && settings[..first_advanced]
+                    .iter()
+                    .any(|(control, _)| *control == id)
+        };
+        for width in [390, 660] {
+            let (rects, _) = positions(width, &visible);
+            for id in [SELECT_PROGRAMS, START, LIVE_TOGGLE, TRANSCRIBE_FILES] {
+                let control = rect(&rects, id);
+                assert!(control.y + control.height <= 560);
+            }
+            assert!(rects.iter().all(|(id, _)| !hidden.contains(id)));
+        }
+    }
+
+    #[test]
+    fn narrow_status_and_preview_use_the_full_content_width() {
+        let (rects, _) = positions(390, &|_| true);
+        for (label, readout) in [
+            (RECORDING_STATUS_LABEL, STATUS),
+            (LIVE_STATUS_LABEL, LIVE_STATUS),
+            (LIVE_PREVIEW_LABEL, LIVE_PREVIEW),
+        ] {
+            let label = rect(&rects, label);
+            let readout = rect(&rects, readout);
+            assert_eq!(readout.width, 370);
+            assert!(readout.y >= label.y + label.height);
+        }
+    }
+
+    #[test]
+    fn dpi_matrix_keeps_primary_actions_and_codec_fields_separate() {
         for dpi in [96, 120, 144, 192] {
-            for width in [1024, 768, 480] {
-                for all_controls in [false, true] {
-                    let visible = |id| {
-                        all_controls || ![MONITOR_ONLY, MIC_GAIN, MIC_GAIN_LABEL].contains(&id)
-                    };
-                    let logical_width = width * 96 / dpi;
-                    let (rects, height) = positions(logical_width, &visible);
-                    for (index, (id, rect)) in rects.iter().enumerate() {
+            for logical_width in [240, 280, 390, 660, 1024] {
+                let (rects, content) = positions(logical_width, &|_| true);
+                let scale = |n| (n * dpi + 48) / 96;
+                let pixels = |r: Rect| Rect {
+                    x: scale(r.x),
+                    y: scale(r.y),
+                    width: scale(r.width),
+                    height: scale(r.height),
+                };
+                for (index, (id, r)) in rects.iter().enumerate() {
+                    let bounds = pixels(*r);
+                    assert!(
+                        bounds.x >= 0 && bounds.x + bounds.width <= scale(logical_width),
+                        "dpi {dpi}, width {logical_width}, id {id}, bounds {bounds:?}"
+                    );
+                    assert!(bounds.y >= 0 && bounds.y + bounds.height <= scale(content));
+                    for (other_id, other) in &rects[index + 1..] {
                         assert!(
-                            rect.x >= 0 && rect.x + rect.width <= logical_width,
-                            "dpi {dpi}, width {width}, id {id}, rect {rect:?}"
+                            !overlaps(bounds, pixels(*other)),
+                            "dpi {dpi}, width {logical_width}, id {id}, id {other_id}"
                         );
-                        assert!(rect.y >= 0 && rect.y + rect.height <= height);
-                        for (other_id, other) in &rects[index + 1..] {
-                            assert!(
-                                !overlaps(*rect, *other),
-                                "dpi {dpi}, width {width}, id {id}, id {other_id}"
-                            );
-                        }
                     }
-                    let filter = rects.iter().find(|(id, _)| *id == FILTER).unwrap().1;
-                    let bitrate = rects.iter().find(|(id, _)| *id == BITRATE).unwrap().1;
-                    let stop = rects.iter().find(|(id, _)| *id == STOP).unwrap().1;
-                    let levels = rects.iter().find(|(id, _)| *id == LEVELS).unwrap().1;
-                    let mark = rects.iter().find(|(id, _)| *id == MARK).unwrap().1;
-                    let transcribe = rects
-                        .iter()
-                        .find(|(id, _)| *id == TRANSCRIBE_FILES)
-                        .expect("Transcribe files must have a position")
-                        .1;
-                    assert!(!overlaps(filter, bitrate));
-                    assert!(!overlaps(mark, levels));
-                    assert!(transcribe.y >= mark.y && transcribe.y < levels.y);
-                    assert!(levels.height >= 96);
-                    // With vertical scrolling any content coordinate can be brought
-                    // inside a nonzero-height viewport.
-                    assert!(height >= stop.y + stop.height);
+                }
+                for (label, field, min_width) in
+                    [(BITRATE_LABEL, BITRATE, 88), (SAMPLE_LABEL, SAMPLE, 105)]
+                {
+                    let label = rect(&rects, label);
+                    let field = rect(&rects, field);
+                    assert!(field.width >= min_width);
+                    assert!(field.y == label.y || field.x == label.x);
                 }
             }
         }

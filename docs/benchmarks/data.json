@@ -129,5 +129,104 @@
         "speech_dtx_bytes": 53271
       }
     ]
+  },
+  "silence_storage": {
+    "track_count": 2,
+    "sample_rate_hz": 48000,
+    "kbps": 32,
+    "encoder_ref": "v2.0.0",
+    "aggregate_sha256": "65415ba5e84ad2317e9d9bfdb6298cd624d40b9df9b726700c43ae6c93c117df",
+    "synthetic_corpus_sha256": "2799099f9136d7ffad4017ed26c2d4c3f1fc524e029878bbcb05480a14a460d9",
+    "cases": [
+      {
+        "label": "Synthetic call with long pauses",
+        "results": [
+          {
+            "skip_silence": false,
+            "saved_frames_per_track": 1920000,
+            "regular_bytes": 136198,
+            "speech_dtx_bytes": 54879
+          },
+          {
+            "skip_silence": true,
+            "saved_frames_per_track": 408960,
+            "regular_bytes": 48148,
+            "speech_dtx_bytes": 40073
+          }
+        ]
+      },
+      {
+        "label": "Saved call with continuous background sound",
+        "results": [
+          {
+            "skip_silence": false,
+            "saved_frames_per_track": 1396203,
+            "regular_bytes": 157593,
+            "speech_dtx_bytes": 69173
+          },
+          {
+            "skip_silence": true,
+            "saved_frames_per_track": 1396203,
+            "regular_bytes": 157593,
+            "speech_dtx_bytes": 69173
+          }
+        ]
+      }
+    ]
+  },
+  "live_speaker_labels": {
+    "calls": 4,
+    "audio_seconds": 160,
+    "corpus_sha256": "93ac8eddc4211f966a18394041820850d9c5155ef3b8369c73732c8f5b2c1b1e",
+    "completed_file_adapter_sha256": "a8fa75e25b0ce0bd91ded999e22e754e64600abe5c5d0d2654f83d3a38362513",
+    "live_adapter_sha256": "b789475348dd8ed27fbe34964ef45cc2fdd4944447a2f71da1bec42e661c4067",
+    "layouts": [
+      {
+        "label": "Separate tracks",
+        "results": [
+          {
+            "report_sha256": "ebba908e40b070a4ed1be027201afbad677db18b592a04b0d7f277a603325521",
+            "ref_ms": 30738,
+            "miss_ms": 350,
+            "false_ms": 0,
+            "confusion_ms": 2108,
+            "isolated": 11,
+            "recovered": 10
+          },
+          {
+            "report_sha256": "c687eaf96462fa2f587562dff027c72dbf88212a258711b80c526ae85b0d4aaf",
+            "ref_ms": 30738,
+            "miss_ms": 823.8333333333321,
+            "false_ms": 0.6041666666660603,
+            "confusion_ms": 8353.083333333334,
+            "isolated": 11,
+            "recovered": 8
+          }
+        ]
+      },
+      {
+        "label": "Single mix",
+        "results": [
+          {
+            "report_sha256": "f8a29a286a29909a2e5510a736e57d2dc9a636023092a2eec49dec7cf075dbcb",
+            "ref_ms": 30738,
+            "miss_ms": 350,
+            "false_ms": 58,
+            "confusion_ms": 9470,
+            "isolated": 11,
+            "recovered": 8
+          },
+          {
+            "report_sha256": "f69553ffd1264b12c3eb9ae4f78cc4f328d285ba7f2e6dd225e9225d15df0047",
+            "ref_ms": 30738,
+            "miss_ms": 1373.8333333333321,
+            "false_ms": 5.77083333333394,
+            "confusion_ms": 12580.083333333336,
+            "isolated": 11,
+            "recovered": 6
+          }
+        ]
+      }
+    ]
   }
 }

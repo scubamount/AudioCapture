@@ -1,5 +1,12 @@
 //! Recording orchestration and timestamp-aligned mixing.
 
+mod disk;
+mod intervals;
+mod live;
+use disk::{MarkerSink, Recording};
+pub use live::LiveTap;
+use live::{Activities, Command, Consumers, next_id};
+
 use crate::{capture, encode, markers, monitor, sources};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -44,6 +51,7 @@ fn reserve_capture_workers(count: usize) -> Result<Vec<CapturePermit>, String> {
     Ok((0..count).map(|_| CapturePermit).collect())
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub inputs: Vec<(String, capture::Input, f32)>,
     pub folder: PathBuf,
@@ -60,7 +68,14 @@ pub struct Config {
 }
 
 struct Shared {
+    id: String,
+    activities: Mutex<Activities>,
+    controls_pending: AtomicBool,
+    recording_route_error: Option<String>,
+    activated: AtomicBool,
+    receipts: live::RecordingReceipts,
     stop: AtomicBool,
+    cutoff: Mutex<Option<Instant>>,
     done: AtomicBool,
     status: Mutex<String>,
     pauses: Mutex<PauseEvents>,
@@ -81,24 +96,58 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn start(mut config: Config) -> Result<Self, String> {
+    pub fn start(config: Config) -> Result<Self, String> {
+        Self::acquire(config, None)
+    }
+
+    pub fn start_live(config: Config, tap: Box<dyn LiveTap>) -> Result<Self, String> {
+        Self::acquire(config, Some(tap))
+    }
+
+    fn acquire(mut config: Config, initial_tap: Option<Box<dyn LiveTap>>) -> Result<Self, String> {
+        let initial_recording = initial_tap.is_none() && !config.monitor_only;
+        if initial_tap.is_some() && config.monitor_only {
+            return Err("Turn off Monitor only before starting transcription".into());
+        }
         if config.inputs.is_empty() {
             return Err("Select at least one audio source".into());
         }
         if config.monitor_only && config.monitor.is_none() {
             return Err("Select a monitor output for monitor-only mode".into());
         }
-        if !config.monitor_only && !config.separate && !config.mixed {
+        if initial_recording && !config.separate && !config.mixed {
             return Err("Select at least one output mode".into());
         }
         sources::validate_routes(
             &mut config.inputs,
-            (config.mixed && !config.monitor_only) || config.monitor.is_some(),
-            config.monitor.as_deref(),
+            initial_tap.is_none()
+                && ((config.mixed && !config.monitor_only) || config.monitor.is_some()),
+            if initial_tap.is_none() {
+                config.monitor.as_deref()
+            } else {
+                None
+            },
         )?;
+        // Check optional writer routes once while pinning the sources. Starting a
+        // writer later must not enumerate devices or processes on the mixer.
+        let recording_route_error = if initial_tap.is_some()
+            && (config.mixed || config.monitor.is_some())
+        {
+            sources::validate_routes(&mut config.inputs.clone(), true, config.monitor.as_deref())
+                .err()
+        } else {
+            None
+        };
         let permits = reserve_capture_workers(config.inputs.len())?;
         let shared = Arc::new(Shared {
+            id: format!("session-{}-{}", std::process::id(), next_id()),
+            activities: Mutex::new(Activities::new(initial_recording, initial_tap.is_some())),
+            controls_pending: AtomicBool::new(false),
+            recording_route_error,
+            activated: AtomicBool::new(false),
+            receipts: Default::default(),
             stop: AtomicBool::new(false),
+            cutoff: Mutex::new(None),
             done: AtomicBool::new(false),
             status: Mutex::new("Starting capture".into()),
             pauses: Mutex::new(PauseEvents::default()),
@@ -110,7 +159,7 @@ impl Session {
         let worker = thread::Builder::new()
             .name("recording-session".into())
             .spawn(move || {
-                let result = run_session(config, &state, permits);
+                let result = run_session(config, &state, permits, initial_tap);
                 let prior = state.status.lock().unwrap().clone();
                 let message = match &result {
                     Ok(()) if prior.starts_with("Warning:") => {
@@ -121,6 +170,10 @@ impl Session {
                 };
                 *state.status.lock().unwrap() = message;
                 state.done.store(true, Ordering::Release);
+                let mut ownership = state.activities.lock().unwrap();
+                ownership.recording = false;
+                ownership.live = false;
+                ownership.events.clear();
                 result
             })
             .map_err(|e| format!("Could not start recording worker: {e}"))?;
@@ -130,7 +183,76 @@ impl Session {
         })
     }
 
+    pub fn session_id(&self) -> &str {
+        &self.shared.id
+    }
+    /// Return the next finalized recording or its error. Polling consumes one receipt.
+    pub fn take_recording_result(&self) -> Option<Result<PathBuf, String>> {
+        self.shared.receipts.lock().unwrap().pop_front()
+    }
+    pub fn has_activated(&self) -> bool {
+        self.shared.activated.load(Ordering::Acquire)
+    }
+    pub fn recording(&self) -> bool {
+        self.shared.activities.lock().unwrap().recording
+    }
+    pub fn transcribing(&self) -> bool {
+        self.shared.activities.lock().unwrap().live
+    }
+
+    fn submit(&self, command: Command) -> Result<(), String> {
+        let mut activities = self.shared.activities.lock().unwrap();
+        if self.is_finished() || self.shared.stop.load(Ordering::Acquire) {
+            return Err("Capture session is stopping".into());
+        }
+        if activities.events.len() >= 64 && !matches!(command, Command::StopBoth) {
+            return Err("Too many pending capture controls".into());
+        }
+        if self.shared.monitor_only && !matches!(command, Command::StopBoth) {
+            return Err("Stop monitoring before changing capture activities".into());
+        }
+        if activities.change(&command)? {
+            let at = Instant::now();
+            if matches!(command, Command::StartRecording) {
+                let mut pauses = self.shared.pauses.lock().unwrap();
+                if pauses.requested {
+                    pauses.requested = false;
+                    pauses.events.push_back((at, false));
+                }
+            }
+            activities.events.push_back((at, command));
+            self.shared.controls_pending.store(true, Ordering::Release);
+            if !activities.recording && !activities.live {
+                *self.shared.cutoff.lock().unwrap() = Some(at);
+                self.shared.stop.store(true, Ordering::Release);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn attach_live(&self, tap: Box<dyn LiveTap>) -> Result<(), String> {
+        self.submit(Command::Attach(tap))
+    }
+    pub fn start_recording(&self) -> Result<(), String> {
+        self.submit(Command::StartRecording)
+    }
+    pub fn stop_recording(&self) -> Result<(), String> {
+        self.submit(Command::StopRecording)
+    }
+    pub fn stop_live(&self) -> Result<(), String> {
+        self.submit(Command::StopLive)
+    }
+    pub fn stop_both(&self) -> Result<(), String> {
+        self.submit(Command::StopBoth)
+    }
+    pub fn set_live_speakers(&self, enabled: bool) -> Result<(), String> {
+        self.submit(Command::Speakers(enabled))
+    }
+
     pub fn pause(&self, paused: bool) {
+        if !self.recording() && !self.shared.monitor_only {
+            return;
+        }
         let mut events = self.shared.pauses.lock().unwrap();
         if events.requested != paused {
             events.events.push_back((Instant::now(), paused));
@@ -146,7 +268,7 @@ impl Session {
     /// Queue a marker for the recorded timeline. Errors during persistence are
     /// reported in the session status.
     pub fn mark(&self, label: &str) -> Result<(), String> {
-        if self.shared.monitor_only {
+        if !self.recording() {
             return Err("Markers require a recording".into());
         }
         if self.shared.stop.load(Ordering::Acquire) || self.is_finished() {
@@ -165,6 +287,7 @@ impl Session {
     }
 
     pub fn stop(&mut self) -> Result<(), String> {
+        let _ = self.stop_both();
         self.shared.stop.store(true, Ordering::Release);
         match self.worker.take() {
             Some(worker) => worker
@@ -193,6 +316,7 @@ fn instant_frame(epoch: Instant, at: Instant) -> u64 {
 
 #[derive(Default)]
 struct BlockSelection {
+    audible: bool,
     valid: usize,
     kept: usize,
     mask: Vec<bool>,
@@ -200,6 +324,7 @@ struct BlockSelection {
 
 impl BlockSelection {
     fn reset(&mut self, valid: usize, audible: bool) {
+        self.audible = audible;
         self.valid = valid;
         self.kept = if audible { valid } else { 0 };
         self.mask.clear();
@@ -232,7 +357,7 @@ impl BlockSelection {
 
 fn commit_markers(
     requests: &mut VecDeque<(Instant, String)>,
-    writer: &mut markers::MarkerWriter,
+    writer: &mut impl MarkerSink,
     epoch: Instant,
     cursor: u64,
     written_frames: u64,
@@ -305,20 +430,20 @@ fn new_writer(config: &Config, name: &str, unique: u128) -> Result<encode::Write
         config.bitrate,
         config.flac_level,
     )
-    .map_err(|error| format!("{}: {error}", path.display()))
+    .map_err(|error| format!("{error}: {}", path.display()))
 }
 
 struct Source {
     name: String,
-    output: Option<PathBuf>,
     gain: f32,
-    rx: mpsc::Receiver<capture::Packet>,
+    rx: mpsc::Receiver<(capture::Packet, capture::TimingEvent)>,
+    timing: live::TimingNotices,
     pending: BTreeMap<u64, Vec<f32>>,
-    writer: Option<encode::Writer>,
     handle: Option<JoinHandle<Result<(), String>>>,
     ready: mpsc::Receiver<Result<(), String>>,
     started: bool,
     runtime_error: Option<String>,
+    unavailable_from: Option<u64>,
     late_frames: u64,
     late_span: Option<(u64, u64)>,
     stats: Arc<capture::CaptureStats>,
@@ -424,6 +549,9 @@ fn add_packet(source: &mut Source, packet: capture::Packet, cursor: u64) -> Resu
     let mut offset = cursor.saturating_sub(packet.frame).min(frames as u64) as usize;
     source.late_frames = source.late_frames.saturating_add(offset as u64);
     if offset > 0 {
+        source
+            .timing
+            .observe(cursor, capture::TimingEvent::Uncertain);
         let end = packet.frame.saturating_add(offset as u64);
         source.late_span = Some(match source.late_span {
             Some((start, last)) => (start.min(packet.frame), last.max(end)),
@@ -470,7 +598,8 @@ fn drain_packets(
     max_frame: &mut u64,
     failure: &mut Option<String>,
 ) {
-    while let Ok(packet) = source.rx.try_recv() {
+    while let Ok((packet, timing)) = source.rx.try_recv() {
+        source.timing.observe(packet.frame, timing);
         let packet_end = packet
             .frame
             .saturating_add((packet.samples.len() / 2) as u64);
@@ -515,19 +644,20 @@ fn render_block(
     pauses: &[(Instant, bool)],
     paused_at_cursor: bool,
     skip_silence: bool,
-    mixed: &mut Option<encode::Writer>,
+    recording: &mut Option<Recording>,
     monitor_tx: &mut Option<mpsc::SyncSender<Vec<f32>>>,
     keep: &mut BlockSelection,
 ) -> Result<bool, String> {
-    let tracks: Vec<Option<Vec<f32>>> = sources
-        .iter_mut()
-        .map(|source| source.pending.remove(&cursor))
-        .collect();
+    let block = cursor / BLOCK * BLOCK;
+    let offset = (cursor - block) as usize * 2;
+    let samples = offset..offset + valid_frames * 2;
     let audible = !skip_silence
-        || tracks.iter().flatten().any(|track| {
-            track[..valid_frames * 2]
-                .iter()
-                .any(|value| value.abs() > 0.0001)
+        || sources.iter().any(|source| {
+            source.pending.get(&block).is_some_and(|track| {
+                track[samples.clone()]
+                    .iter()
+                    .any(|value| value.abs() > 0.0001)
+            })
         });
     keep.reset(valid_frames, audible);
     if !audible {
@@ -560,7 +690,7 @@ fn render_block(
     if kept_frames == 0 {
         return Ok(false);
     }
-    let need_mix = mixed.is_some() || monitor_tx.is_some();
+    let need_mix = recording.as_ref().is_some_and(|r| r.mixed.is_some()) || monitor_tx.is_some();
     let mut mix = if need_mix {
         vec![0.0_f32; kept_frames * 2]
     } else {
@@ -568,12 +698,14 @@ fn render_block(
     };
     let silence = [0.0_f32; BLOCK as usize * 2];
 
-    for (source, track) in sources.iter_mut().zip(tracks) {
-        let input = track
-            .as_deref()
-            .map(|samples| &samples[..valid_frames * 2])
+    for (index, source) in sources.iter().enumerate() {
+        let input = source
+            .pending
+            .get(&block)
+            .map(|t| &t[samples.clone()])
             .unwrap_or(&silence[..valid_frames * 2]);
-        if source.writer.is_none() && !need_mix {
+        let writer = recording.as_mut().and_then(|r| r.files[index].as_mut());
+        if writer.is_none() && !need_mix {
             continue;
         }
         let filtered;
@@ -588,15 +720,8 @@ fn render_block(
                 .collect::<Vec<_>>();
             &filtered
         };
-        if let Some(writer) = source.writer.as_mut() {
-            writer.write(selected).map_err(|error| {
-                let name = source
-                    .output
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| source.name.clone());
-                format!("{name}: {error}")
-            })?;
+        if let Some(writer) = writer {
+            writer.write(selected)?;
         }
         if need_mix {
             for (output, sample) in mix.iter_mut().zip(selected) {
@@ -607,10 +732,8 @@ fn render_block(
     for value in &mut mix {
         *value = value.clamp(-1.0, 1.0);
     }
-    if let Some(writer) = mixed.as_mut() {
-        writer
-            .write(&mix)
-            .map_err(|error| format!("Combined: {error}"))?;
+    if let Some(writer) = recording.as_mut().and_then(|r| r.mixed.as_mut()) {
+        writer.write(&mix)?;
     }
     if let Some(tx) = monitor_tx {
         match tx.try_send(mix) {
@@ -626,117 +749,84 @@ fn render_block(
     Ok(true)
 }
 
-fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> Result<(), String> {
-    if !config.monitor_only {
-        std::fs::create_dir_all(&config.folder)
-            .map_err(|e| format!("{}: {e}", config.folder.display()))?;
-    }
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_nanos();
-    let mut descriptions = Vec::new();
-    for (index, (name, _, _)) in config.inputs.iter().enumerate() {
-        if config.separate && !config.monitor_only {
-            let path = output_path(&config, &format!("{}-{}", name, index + 1), unique);
-            descriptions.push(format!("{} → {}", name, path.display()));
-        } else {
-            descriptions.push(name.clone());
+fn spawn_monitor(
+    id: String,
+) -> (
+    mpsc::SyncSender<Vec<f32>>,
+    JoinHandle<Result<(), String>>,
+    mpsc::Receiver<Result<(), String>>,
+) {
+    let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(32);
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let handle = thread::spawn(move || -> Result<(), String> {
+        let mut output = match monitor::Monitor::open(&id) {
+            Ok(output) => {
+                let _ = ready_tx.send(Ok(()));
+                output
+            }
+            Err(error) => {
+                let _ = ready_tx.send(Err(error.clone()));
+                return Err(error);
+            }
+        };
+        loop {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(samples) => output.write_owned(samples)?,
+                Err(mpsc::RecvTimeoutError::Timeout) => output.check()?,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    output.check()?;
+                    break;
+                }
+            }
         }
-    }
-    if config.mixed && !config.monitor_only {
-        descriptions.push(format!(
-            "Combined → {}",
-            output_path(&config, "Combined", unique).display()
-        ));
-    }
-    let description = descriptions.join(" | ");
-    let mut mixed = if config.mixed && !config.monitor_only {
-        Some(new_writer(&config, "Combined", unique)?)
+        Ok(())
+    });
+    (tx, handle, ready_rx)
+}
+
+fn run_session(
+    config: Config,
+    shared: &Shared,
+    permits: Vec<CapturePermit>,
+    initial_tap: Option<Box<dyn LiveTap>>,
+) -> Result<(), String> {
+    let recording = if initial_tap.is_none() && !config.monitor_only {
+        Some(Recording::open(&config, 0)?)
     } else {
         None
     };
-    let mut separate: Vec<Option<encode::Writer>> = Vec::new();
-    for (index, (name, _, _)) in config.inputs.iter().enumerate() {
-        let writer = if config.separate && !config.monitor_only {
-            match new_writer(&config, &format!("{}-{}", name, index + 1), unique) {
-                Ok(writer) => Some(writer),
-                Err(error) => {
-                    for opened in separate.into_iter().flatten() {
-                        let _ = opened.finish();
-                    }
-                    if let Some(opened) = mixed.take() {
-                        let _ = opened.finish();
-                    }
-                    return Err(error);
-                }
+    let mut consumers = Consumers {
+        closing: Vec::new(),
+        receipts: shared.receipts.clone(),
+        recording,
+        live: None,
+    };
+    if let Some(tap) = initial_tap {
+        consumers.attach(tap, &config, &shared.id, 0)?;
+    }
+    let description = config
+        .inputs
+        .iter()
+        .map(|(name, _, _)| name.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let mut monitor_handle = None;
+    let mut monitor_tx =
+        if let Some(id) = config.monitor.clone().filter(|_| consumers.live.is_none()) {
+            let (tx, handle, ready_rx) = spawn_monitor(id);
+            monitor_handle = Some(handle);
+            match ready_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(Ok(())) => Some(tx),
+                Ok(Err(error)) => return Err(format!("Monitor: {error}")),
+                Err(error) => return Err(format!("Monitor initialization: {error}")),
             }
         } else {
             None
         };
-        separate.push(writer);
-    }
-    let mut monitor_handle = None;
-    let mut monitor_tx = if let Some(id) = config.monitor.clone() {
-        let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(32);
-        let (ready_tx, ready_rx) = mpsc::channel();
-        monitor_handle = Some(thread::spawn(move || -> Result<(), String> {
-            let mut output = match monitor::Monitor::open(&id) {
-                Ok(output) => {
-                    let _ = ready_tx.send(Ok(()));
-                    output
-                }
-                Err(error) => {
-                    let _ = ready_tx.send(Err(error.clone()));
-                    return Err(error);
-                }
-            };
-            loop {
-                match rx.recv_timeout(Duration::from_millis(100)) {
-                    Ok(samples) => output.write_owned(samples)?,
-                    Err(mpsc::RecvTimeoutError::Timeout) => output.check()?,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        output.check()?;
-                        break;
-                    }
-                }
-            }
-            Ok(())
-        }));
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Some(tx),
-            Ok(Err(error)) => {
-                for opened in separate.into_iter().flatten() {
-                    let _ = opened.finish();
-                }
-                if let Some(opened) = mixed.take() {
-                    let _ = opened.finish();
-                }
-                return Err(format!("Monitor: {error}"));
-            }
-            Err(error) => {
-                for opened in separate.into_iter().flatten() {
-                    let _ = opened.finish();
-                }
-                if let Some(opened) = mixed.take() {
-                    let _ = opened.finish();
-                }
-                return Err(format!("Monitor initialization: {error}"));
-            }
-        }
-    } else {
-        None
-    };
     let epoch = Instant::now();
     let capture_stop = Arc::new(AtomicBool::new(false));
     let mut sources = Vec::new();
-    for (index, (((name, input, gain), writer), permit)) in config
-        .inputs
-        .iter()
-        .zip(separate.into_iter())
-        .zip(permits)
-        .enumerate()
-    {
+    for ((name, input, gain), permit) in config.inputs.iter().zip(permits) {
         let (tx, rx) = mpsc::sync_channel(256);
         let (ready_tx, ready) = mpsc::channel();
         let stop = Arc::clone(&capture_stop);
@@ -745,27 +835,19 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
         let input = input.clone();
         let handle = thread::spawn(move || {
             let _permit = permit;
-            capture::run_with_stats(input, tx, stop, ready_tx, epoch, source_stats)
+            capture::run_timed(input, tx, stop, ready_tx, epoch, source_stats)
         });
         sources.push(Source {
             name: name.clone(),
-            output: if writer.is_some() {
-                Some(output_path(
-                    &config,
-                    &format!("{}-{}", name, index + 1),
-                    unique,
-                ))
-            } else {
-                None
-            },
             gain: *gain,
             rx,
+            timing: live::TimingNotices::default(),
             pending: BTreeMap::new(),
-            writer,
             handle: Some(handle),
             ready,
             started: false,
             runtime_error: None,
+            unavailable_from: None,
             late_frames: 0,
             late_span: None,
             stats,
@@ -782,23 +864,26 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
     let mut stop_frame = None;
     let mut render_fatal = false;
     let mut pause_base = false;
-    let mut written_frames = 0u64;
     let mut keep = BlockSelection::default();
-    let mut marker_writer = if config.monitor_only {
-        None
-    } else {
-        Some(markers::MarkerWriter::new(
-            config.folder.join(format!("Markers-{unique}.labels.txt")),
-            RATE as u32,
-        )?)
-    };
+    let mut controls = VecDeque::new();
     let mut last_levels = Instant::now() - Duration::from_millis(250);
     let startup = Instant::now();
     loop {
+        if shared.controls_pending.swap(false, Ordering::AcqRel) {
+            controls.append(&mut shared.activities.lock().unwrap().events);
+        }
         if shared.stop.load(Ordering::Acquire) || failure.is_some() {
             stopping = true;
             stop_started.get_or_insert_with(Instant::now);
-            stop_frame.get_or_insert_with(|| (epoch.elapsed().as_secs_f64() * RATE as f64) as u64);
+            stop_frame.get_or_insert_with(|| {
+                let at = shared.cutoff.lock().unwrap().unwrap_or_else(Instant::now);
+                instant_frame(epoch, at)
+            });
+            // A stop may arrive between the first command poll and the stop
+            // flag. Observe its precise cutoff before draining the last block.
+            if shared.controls_pending.swap(false, Ordering::AcqRel) {
+                controls.append(&mut shared.activities.lock().unwrap().events);
+            }
             capture_stop.store(true, Ordering::Release);
         }
         for source in &mut sources {
@@ -806,9 +891,11 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
                 match source.ready.try_recv() {
                     Ok(Ok(())) => source.started = true,
                     Ok(Err(error)) => {
+                        source.unavailable_from = Some(0);
                         failure.get_or_insert(format!("{}: {error}", source.name));
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
+                        source.unavailable_from = Some(0);
                         failure.get_or_insert(format!(
                             "{}: capture stopped during startup",
                             source.name
@@ -816,6 +903,7 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
                     }
                     Err(mpsc::TryRecvError::Empty) => {
                         if startup.elapsed() > Duration::from_secs(10) {
+                            source.unavailable_from = Some(0);
                             failure.get_or_insert(format!(
                                 "{}: capture startup timed out",
                                 source.name
@@ -825,10 +913,44 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
                 };
             }
         }
+        if consumers.recording.as_ref().is_some_and(Recording::closed) {
+            let _ = consumers.stop_recording(&config, cursor, false);
+            let mut ownership = shared.activities.lock().unwrap();
+            ownership.recording = false;
+            if !ownership.live && !config.monitor_only {
+                shared.stop.store(true, Ordering::Release);
+            }
+        }
+        if let Err(error) = consumers.poll_finalizers() {
+            set_status(shared, format!("Recording writer: {error}"));
+            if consumers.live.is_some() || consumers.recording.is_some() {
+                warning = Some(error);
+            } else {
+                failure.get_or_insert(error);
+            }
+        }
         let all_started = sources.iter().all(|source| source.started);
+        if !shared.activated.load(Ordering::Relaxed)
+            && all_started
+            && failure.is_none()
+            && (config.monitor_only
+                || consumers.live.is_some()
+                || consumers.recording.as_ref().is_some_and(Recording::ready))
+        {
+            shared.activated.store(true, Ordering::Release);
+        }
+        let track_timing = consumers.live.is_some()
+            || consumers
+                .recording
+                .as_ref()
+                .is_some_and(|r| r.map.is_some())
+            || controls
+                .iter()
+                .any(|(_, e)| matches!(e, Command::Attach(_)));
         let mut all_finished = true;
         let mut source_exited = false;
         for source in &mut sources {
+            source.timing.enable(track_timing);
             drain_packets(source, cursor, &mut max_frame, &mut failure);
             let finished = source
                 .handle
@@ -841,7 +963,14 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
                         .join()
                         .unwrap_or_else(|_| Err("capture worker panicked".into()));
                     record_source_exit(source, result, all_started, stopping, &mut failure);
-                    source_exited |= source.runtime_error.is_some();
+                    if source.runtime_error.is_some() {
+                        let observed = instant_frame(epoch, Instant::now());
+                        source.unavailable_from = Some(observed);
+                        source
+                            .timing
+                            .observe(observed, capture::TimingEvent::Uncertain);
+                        source_exited = true;
+                    }
                     // Packets can arrive between the previous drain and observing
                     // worker completion. The sender is gone after join.
                     drain_packets(source, cursor, &mut max_frame, &mut failure);
@@ -956,9 +1085,20 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
             set_status(
                 shared,
                 format!(
-                    "Recording {}s | {}{}",
+                    "{} {}s | {}{}",
+                    if consumers.recording.is_some() {
+                        "Recording"
+                    } else if consumers.live.is_some() {
+                        "Live transcription"
+                    } else {
+                        "Monitoring"
+                    },
                     epoch.elapsed().as_secs(),
-                    description,
+                    consumers
+                        .recording
+                        .as_ref()
+                        .map(|r| r.describe())
+                        .unwrap_or_else(|| description.clone()),
                     warning_text
                 ),
             );
@@ -984,30 +1124,78 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
         } else {
             Vec::new()
         };
-        while cursor < target && !render_fatal {
-            let valid_frames = if stopping && all_finished {
-                (final_frame - cursor).min(BLOCK) as usize
-            } else {
-                BLOCK as usize
-            };
+        let render_end = if stopping && all_finished {
+            final_frame
+        } else {
+            target
+        };
+        while cursor <= render_end && !render_fatal {
+            while controls
+                .front()
+                .is_some_and(|(at, _)| instant_frame(epoch, *at) <= cursor)
+            {
+                let (_, command) = controls.pop_front().unwrap();
+                let started_record = matches!(command, Command::StartRecording);
+                if let Err(error) = consumers.apply(command, &config, shared, cursor) {
+                    warning = Some(error.clone());
+                    set_status(shared, format!("Warning: {error}"));
+                }
+                if started_record
+                    && consumers.recording.is_some()
+                    && let Some(id) = config.monitor.as_ref()
+                    && monitor_handle.is_none()
+                {
+                    let (tx, handle, _ready) = spawn_monitor(id.clone());
+                    monitor_handle = Some(handle);
+                    monitor_tx = Some(tx);
+                }
+            }
+            if cursor == render_end {
+                break;
+            }
+            let block = cursor / BLOCK * BLOCK;
+            let block_end = (block + BLOCK).min(render_end);
+            let end = controls
+                .front()
+                .map(|(at, _)| instant_frame(epoch, *at))
+                .unwrap_or(block_end)
+                .min(block_end);
+            let valid = (end - cursor) as usize;
+            if let Err(error) = consumers.send_audio(&mut sources, cursor, valid) {
+                if let Some(r) = &mut consumers.recording {
+                    r.incomplete = true;
+                }
+                warning = Some(format!("Recording timeline: {error}"));
+            }
+            if stopping
+                && all_finished
+                && consumers.live.is_none()
+                && !controls
+                    .iter()
+                    .any(|(_, cmd)| matches!(cmd, Command::Attach(_)))
+                && let Some(r) = &consumers.recording
+            {
+                r.allow_final_drain();
+            }
             let result = render_block(
                 &mut sources,
                 cursor,
-                valid_frames,
+                valid,
                 epoch,
                 &pauses,
                 pause_base,
-                config.skip_silence,
-                &mut mixed,
+                config.skip_silence && (consumers.recording.is_some() || config.monitor_only),
+                &mut consumers.recording,
                 &mut monitor_tx,
                 &mut keep,
             );
-            if result.is_ok()
-                || result
-                    .as_ref()
-                    .is_err_and(|error| error.starts_with("Monitor output") && !config.monitor_only)
+            let monitor_failed = result
+                .as_ref()
+                .is_err_and(|e| e.starts_with("Monitor output"))
+                && !config.monitor_only;
+            if (result.is_ok() || monitor_failed)
+                && let Some(r) = &mut consumers.recording
             {
-                let end = cursor + keep.valid as u64;
                 let mut requests = VecDeque::new();
                 {
                     let mut pending = shared.markers.lock().unwrap();
@@ -1018,42 +1206,45 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
                         requests.push_back(pending.pop_front().unwrap());
                     }
                 }
-                if let Some(writer) = &mut marker_writer {
-                    if let Some(error) =
-                        commit_markers(&mut requests, writer, epoch, cursor, written_frames, &keep)
-                    {
-                        warning = Some(error);
-                    }
+                if let Some(error) = commit_markers(
+                    &mut requests,
+                    &mut r.markers,
+                    epoch,
+                    cursor,
+                    r.written,
+                    &keep,
+                ) {
+                    warning = Some(error);
                 }
-                written_frames += keep.kept as u64;
+                if let Some(map) = &mut r.map
+                    && let Err(error) = map.block(cursor, r.written, &keep)
+                {
+                    warning = Some(format!("Recording timeline: {error}"));
+                    r.incomplete = true;
+                    r.map = None;
+                }
+                r.written += keep.kept as u64;
             }
             if let Err(error) = result {
-                // Monitoring errors should not destroy an otherwise valid recording.
-                if error.starts_with("Monitor output") && !config.monitor_only {
-                    set_status(shared, format!("Warning: {error}; continuing recording"));
+                if monitor_failed {
                     warning = Some(error);
                     monitor_tx.take();
-                    // Audio was already written before the monitor rejected this block.
-                    cursor += BLOCK;
-                    continue;
+                } else if consumers.recording.is_some() && consumers.live.is_some() {
+                    let _ = consumers.stop_recording(&config, cursor, false);
+                    shared.activities.lock().unwrap().recording = false;
+                    set_status(shared, format!("Warning: {error}"));
+                    warning = Some(error);
                 } else {
-                    let error = if let Some(detail) = error.strip_prefix("Combined: ") {
-                        format!(
-                            "{}: {detail}",
-                            output_path(&config, "Combined", unique).display()
-                        )
-                    } else {
-                        error
-                    };
                     failure.get_or_insert(error);
-                    capture_stop.store(true, Ordering::Release);
-                    stopping = true;
-                    stop_started.get_or_insert_with(Instant::now);
                     render_fatal = true;
-                    break;
                 }
             }
-            cursor += BLOCK;
+            cursor = end;
+            if cursor == block + BLOCK || cursor == final_frame && stopping && all_finished {
+                for source in &mut sources {
+                    source.pending.remove(&block);
+                }
+            }
         }
         if cursor > 0 {
             let mut pause_events = shared.pauses.lock().unwrap();
@@ -1093,33 +1284,23 @@ fn run_session(config: Config, shared: &Shared, permits: Vec<CapturePermit>) -> 
             }
         }
     }
-    for source in &mut sources {
-        if let Some(writer) = source.writer.take() {
-            if let Err(error) = writer.finish() {
-                let name = source
-                    .output
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| source.name.clone());
-                failure.get_or_insert(format!("{name}: {error}"));
-            }
-        }
-    }
-    if let Some(writer) = mixed.take() {
-        if let Err(error) = writer.finish() {
-            failure.get_or_insert(format!(
-                "{}: {error}",
-                output_path(&config, "Combined", unique).display()
-            ));
-        }
-    }
-    if let Some(writer) = &mut marker_writer {
+    if let Some(r) = consumers.recording.as_mut() {
         let pending: Vec<_> = shared.markers.lock().unwrap().drain(..).collect();
         for (_, label) in pending {
-            if let Err(error) = writer.mark(written_frames, &label) {
-                warning = Some(format!("Marker: {error}"));
+            if let Err(e) = r.markers.mark(r.written, &label) {
+                warning = Some(format!("Marker: {e}"));
             }
         }
+    }
+    if let Err(error) = consumers.stop_live(cursor) {
+        failure.get_or_insert(error);
+    }
+    let final_output = consumers.stop_recording(&config, cursor, failure.is_none());
+    if let Err(error) = final_output {
+        failure.get_or_insert(error);
+    }
+    if let Err(e) = consumers.wait_finalizers() {
+        failure.get_or_insert(e);
     }
     let mut notices = Vec::new();
     if let Some(warning) = warning {
@@ -1200,20 +1381,392 @@ mod tests {
         let (_, ready) = mpsc::channel();
         Source {
             name: name.into(),
-            output: None,
             gain: 1.0,
             rx,
+            timing: live::TimingNotices::default(),
             pending: BTreeMap::new(),
-            writer: None,
             handle: None,
             ready,
             started: true,
             runtime_error: None,
+            unavailable_from: None,
             late_frames: 0,
             late_span: None,
             stats: Arc::new(capture::CaptureStats::default()),
             meter: Meter::default(),
         }
+    }
+
+    #[test]
+    fn live_control_requests_keep_the_other_consumer() {
+        let mut control = Activities::new(true, false);
+        control.change(&Command::Attach(Box::new(TestTap))).unwrap();
+        assert!(control.recording && control.live);
+        control.change(&Command::StopRecording).unwrap();
+        assert!(!control.recording && control.live);
+        control.change(&Command::StartRecording).unwrap();
+        control.change(&Command::StopLive).unwrap();
+        assert!(control.recording && !control.live);
+        control.change(&Command::StopBoth).unwrap();
+        assert!(!control.live && !control.recording);
+    }
+
+    struct TestTap;
+    impl LiveTap for TestTap {
+        fn interval_id(&self) -> &str {
+            "test-live"
+        }
+        fn start(&mut self, _: &str, _: u64) {}
+        fn audio(&mut self, _: usize, _: u64, _: &[f32]) {}
+        fn gap(&mut self, _: usize, _: u64, _: u64) {}
+        fn finish(&mut self, _: u64) {}
+    }
+
+    #[derive(Default)]
+    struct Trace {
+        audio: Vec<(usize, u64, usize, f32)>,
+        cutoffs: Vec<u64>,
+        overlaps: Vec<(String, u64, u64)>,
+        gaps: Vec<(usize, u64, u64)>,
+        uncertain: Vec<(usize, u64)>,
+    }
+    struct TraceTap(Arc<Mutex<Trace>>);
+    impl LiveTap for TraceTap {
+        fn interval_id(&self) -> &str {
+            "live-001"
+        }
+        fn start(&mut self, _: &str, first: u64) {
+            self.0.lock().unwrap().cutoffs.push(first);
+        }
+        fn audio(&mut self, source: usize, first: u64, stereo: &[f32]) {
+            self.0
+                .lock()
+                .unwrap()
+                .audio
+                .push((source, first, stereo.len() / 2, stereo[0]));
+        }
+        fn gap(&mut self, source: usize, first: u64, end: u64) {
+            self.0.lock().unwrap().gaps.push((source, first, end));
+        }
+        fn recording(&mut self, id: &str, start: u64, end: u64) {
+            self.0
+                .lock()
+                .unwrap()
+                .overlaps
+                .push((id.to_string(), start, end));
+        }
+        fn uncertain(&mut self, source: usize, at: u64) {
+            self.0.lock().unwrap().uncertain.push((source, at));
+        }
+        fn finish(&mut self, end: u64) {
+            self.0.lock().unwrap().cutoffs.push(end);
+        }
+    }
+
+    fn live_recording_config() -> Config {
+        Config {
+            inputs: vec![
+                ("app".into(), capture::Input::Process(0), 1.0),
+                ("mic".into(), capture::Input::Mic("test".into()), 1.0),
+            ],
+            folder: std::env::temp_dir().join(format!(
+                "capture-interval-test-{}-{}",
+                std::process::id(),
+                next_id()
+            )),
+            format: "wav".into(),
+            rate: 48000,
+            channels: 1,
+            bitrate: 32,
+            flac_level: 5,
+            separate: true,
+            mixed: false,
+            skip_silence: true,
+            monitor: None,
+            monitor_only: false,
+        }
+    }
+
+    #[test]
+    fn staggered_consumers_preserve_pcm_bounds_map_and_markers() {
+        let config = live_recording_config();
+        let mut sources = vec![source("app"), source("mic")];
+        add_packet(
+            &mut sources[0],
+            capture::Packet {
+                frame: 0,
+                samples: vec![0.25; 960],
+            },
+            0,
+        )
+        .unwrap();
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let mut active = Consumers {
+            closing: Vec::new(),
+            receipts: Default::default(),
+            recording: None,
+            live: None,
+        };
+        active
+            .attach(Box::new(TraceTap(trace.clone())), &config, "session-001", 0)
+            .unwrap();
+        active.send_audio(&mut sources, 0, 96).unwrap();
+        assert!(
+            !config.folder.exists(),
+            "text-only capture must not create the audio folder"
+        );
+        let mut recording = Recording::open(&config, 96).unwrap();
+        recording.enable_map(&config, "session-001", 96).unwrap();
+        let id = recording.id.clone();
+        active.recording = Some(recording);
+        let epoch = Instant::now();
+        let pauses = [
+            (epoch + Duration::from_millis(4), true),
+            (epoch + Duration::from_millis(6), false),
+        ];
+        let mut keep = BlockSelection::default();
+        let mut markers =
+            VecDeque::from([(epoch + Duration::from_millis(5), "inside pause".to_string())]);
+        active.send_audio(&mut sources, 96, 336).unwrap();
+        render_block(
+            &mut sources,
+            96,
+            336,
+            epoch,
+            &pauses,
+            false,
+            true,
+            &mut active.recording,
+            &mut None,
+            &mut keep,
+        )
+        .unwrap();
+        let r = active.recording.as_mut().unwrap();
+        assert_eq!(keep.kept, 240);
+        r.map.as_mut().unwrap().block(96, r.written, &keep).unwrap();
+        commit_markers(&mut markers, &mut r.markers, epoch, 96, r.written, &keep);
+        r.written += keep.kept as u64;
+        active.stop_recording(&config, 432, true).unwrap();
+        active.send_audio(&mut sources, 432, 48).unwrap();
+        sources[1].runtime_error = Some("mic disconnected".into());
+        sources[1].unavailable_from = Some(480);
+        active.send_audio(&mut sources, 480, 48).unwrap();
+        active.stop_live(528).unwrap();
+        active.wait_finalizers().unwrap();
+        let trace = trace.lock().unwrap();
+        assert_eq!(trace.cutoffs, [0, 528]);
+        assert_eq!(trace.overlaps, [(id.clone(), 96, 432)]);
+        assert_eq!(trace.gaps, [(1, 480, 528)]);
+        assert_eq!(trace.audio[2], (0, 96, 336, 0.25));
+        let wav = std::fs::read(config.folder.join(format!("app-1-{id}.wav"))).unwrap();
+        assert_eq!(wav.len(), 44 + 240 * 2);
+        let pcm = i16::from_le_bytes([wav[44], wav[45]]);
+        assert!(pcm == 8191 || pcm == 8192);
+        assert!(
+            wav[44..]
+                .chunks_exact(2)
+                .all(|p| i16::from_le_bytes([p[0], p[1]]) == pcm)
+        );
+        let path = config.folder.join(format!("Recording-{id}.timeline.jsonl"));
+        let lines: Vec<serde_json::Value> = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        assert_eq!(lines[0]["outputs"][0]["file"], format!("app-1-{id}.wav"));
+        assert_eq!(
+            lines.iter().find(|r| r["kind"] == "pause").unwrap()["start"],
+            192
+        );
+        assert_eq!(
+            lines.iter().find(|r| r["type"] == "transcript").unwrap()["end"],
+            432
+        );
+        let identity = lines.iter().find(|r| r["type"] == "file_identity").unwrap();
+        assert_eq!(identity["bytes"], 44 + 240 * 2);
+        assert!(identity["last_write"].as_u64().unwrap() > 0);
+        assert!(identity["file_index"].as_u64().unwrap() > 0);
+        assert_eq!(lines.last().unwrap()["saved_frames"], 240);
+        assert_eq!(lines.last().unwrap()["complete"], true);
+        let mark = std::fs::read_to_string(config.folder.join(format!("Markers-{id}.labels.txt")))
+            .unwrap();
+        assert!(
+            mark.starts_with("0.002000\t0.002000\tinside pause"),
+            "{mark}"
+        );
+        std::fs::remove_dir_all(config.folder).unwrap();
+    }
+
+    #[test]
+    fn stop_burst_can_queue_the_entire_alignment_window_before_disk_resumes() {
+        let config = live_recording_config();
+        let mut r = Recording::open(&config, 0).unwrap();
+        let wav = r.first_path.clone();
+        let (entered, release) = r.stall();
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        let audio = [0.25f32; BLOCK as usize * 2];
+        for _ in 0..LATENCY / BLOCK {
+            for output in r.files.iter_mut().flatten() {
+                output.write(&audio).unwrap();
+            }
+            r.written += BLOCK;
+        }
+        release.send(()).unwrap();
+        r.finalize(LATENCY, true).join().unwrap().unwrap();
+        assert_eq!(std::fs::metadata(wav).unwrap().len(), 44 + 2 * LATENCY);
+        std::fs::remove_dir_all(config.folder).unwrap();
+    }
+
+    #[test]
+    fn stalled_disk_preserves_live_cutoff_and_atomic_stem_lengths() {
+        let config = live_recording_config();
+        let mut r = Recording::open(&config, 0).unwrap();
+        let id = r.id.clone();
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let mut active = Consumers {
+            closing: Vec::new(),
+            receipts: Default::default(),
+            recording: None,
+            live: None,
+        };
+        r.enable_map(&config, "stall", 0).unwrap();
+        let (entered, release) = r.stall();
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        let audio = [0.25f32; BLOCK as usize * 2];
+        let mut count = 0;
+        while r.files[0].as_mut().unwrap().write(&audio).is_ok() {
+            if r.files[1].as_mut().unwrap().write(&audio).is_err() {
+                break;
+            }
+            count += 1;
+        }
+        assert!(count > 0 && count <= 256);
+        r.written = count * BLOCK;
+        active.recording = Some(r);
+        active
+            .attach(Box::new(TraceTap(trace.clone())), &config, "stall", 0)
+            .unwrap();
+        let frame = count * BLOCK;
+        active.stop_recording(&config, frame, false).unwrap();
+        let mut sources = vec![source("app"), source("mic")];
+        active.send_audio(&mut sources, frame, 25).unwrap();
+        active.stop_live(frame + 25).unwrap();
+        assert_eq!(trace.lock().unwrap().cutoffs, [0, frame + 25]);
+        assert!(!active.closing[0].1.is_finished());
+        release.send(()).unwrap();
+        assert!(active.wait_finalizers().is_err());
+        for stem in ["app-1", "mic-2"] {
+            assert_eq!(
+                std::fs::metadata(config.folder.join(format!("{stem}-{id}.wav")))
+                    .unwrap()
+                    .len(),
+                44 + count * BLOCK * 2
+            );
+        }
+        std::fs::remove_dir_all(config.folder).unwrap();
+    }
+
+    #[test]
+    fn failed_disk_preserves_accepted_duration_and_live_gap_quality() {
+        let config = live_recording_config();
+        let mut r = Recording::open(&config, 0).unwrap();
+        let id = r.id.clone();
+        let mut sources = vec![source("app"), source("mic")];
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let audio = [0.25; BLOCK as usize * 2];
+        r.enable_map(&config, "quality", 0).unwrap();
+        for f in r.files.iter_mut().flatten() {
+            f.write(&audio).unwrap();
+        }
+        let mut keep = BlockSelection::default();
+        keep.reset(BLOCK as usize, true);
+        r.map.as_mut().unwrap().block(0, 0, &keep).unwrap();
+        r.written = BLOCK;
+        let mut active = Consumers {
+            closing: Vec::new(),
+            receipts: Default::default(),
+            recording: Some(r),
+            live: None,
+        };
+        active
+            .attach(Box::new(TraceTap(trace.clone())), &config, "quality", 0)
+            .unwrap();
+        sources[0].timing.enable(true);
+        sources[0]
+            .timing
+            .observe(192, capture::TimingEvent::KnownGap(96));
+        sources[0]
+            .timing
+            .observe(260, capture::TimingEvent::Uncertain);
+        active.send_audio(&mut sources, 0, BLOCK as usize).unwrap();
+        assert_eq!(trace.lock().unwrap().gaps, [(0, 96, 192)]);
+        assert_eq!(trace.lock().unwrap().uncertain, [(0, 260)]);
+        assert_eq!(trace.lock().unwrap().audio[0], (0, 0, 96, 0.0));
+        assert_eq!(trace.lock().unwrap().audio[1], (0, 192, 288, 0.0));
+        let r = active.recording.as_ref().unwrap();
+        r.inject_failure();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !r.closed() && Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(r.closed());
+        active.stop_recording(&config, BLOCK, false).unwrap();
+        active.stop_live(BLOCK).unwrap();
+        assert!(active.wait_finalizers().unwrap_err().contains("Injected"));
+        let map =
+            std::fs::read_to_string(config.folder.join(format!("Recording-{id}.timeline.jsonl")))
+                .unwrap();
+        let tail: serde_json::Value = serde_json::from_str(map.lines().last().unwrap()).unwrap();
+        assert_eq!(tail["end"], BLOCK);
+        assert_eq!(tail["saved_frames"], BLOCK);
+        assert_eq!(tail["complete"], false);
+        assert!(map.contains("timing_uncertain"));
+        assert!(map.contains("source_gap"));
+        std::fs::remove_dir_all(config.folder).unwrap();
+    }
+
+    #[test]
+    fn stop_live_first_leaves_writer_and_distinct_restarts() {
+        let config = live_recording_config();
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let first = Recording::open(&config, 0).unwrap();
+        let id = first.id.clone();
+        let mut active = Consumers {
+            closing: Vec::new(),
+            receipts: Default::default(),
+            recording: Some(first),
+            live: None,
+        };
+        active
+            .attach(
+                Box::new(TraceTap(trace.clone())),
+                &config,
+                "session-002",
+                53,
+            )
+            .unwrap();
+        active.stop_live(87).unwrap();
+        assert!(active.recording.is_some());
+        active
+            .attach(
+                Box::new(TraceTap(trace.clone())),
+                &config,
+                "session-002",
+                100,
+            )
+            .unwrap();
+        active.stop_live(120).unwrap();
+        active.stop_recording(&config, 120, true).unwrap();
+        assert_eq!(trace.lock().unwrap().cutoffs, [53, 87, 100, 120]);
+        assert_eq!(
+            trace.lock().unwrap().overlaps,
+            [(id.clone(), 53, 87), (id.clone(), 100, 120)]
+        );
+        let second = Recording::open(&config, 120).unwrap();
+        assert_ne!(id, second.id);
+        second.finalize(120, true).join().unwrap().unwrap();
+        active.wait_finalizers().unwrap();
+        std::fs::remove_dir_all(config.folder).unwrap();
     }
 
     #[test]
@@ -1645,10 +2198,13 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel(2);
         let mut source = source("app");
         source.rx = rx;
-        tx.send(capture::Packet {
-            frame: 19,
-            samples: vec![0.4; 12],
-        })
+        tx.send((
+            capture::Packet {
+                frame: 19,
+                samples: vec![0.4; 12],
+            },
+            capture::TimingEvent::None,
+        ))
         .unwrap();
         drop(tx);
         let mut end = 0;

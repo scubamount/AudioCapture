@@ -45,9 +45,19 @@ const IMPORT: &str = "Usage: transcribe import-memory --batch BATCH --output DIR
 
 Apply a local memory batch to the reference importer. Repeat safely.
 ";
+const REFINE_LIVE: &str =
+    "Usage: transcribe refine-live --index FINAL.segments.jsonl --session MANIFEST
+       [--timeline FINAL.timeline.jsonl --audio STEM --adapter-config CONFIG.json]
+
+Import a finalized live interval for local review and explicit memory export.
+Select a retained stem and its finalized timeline to refine speaker labels locally.
+The adapter reads the selected file. Only verified mapped transcript spans can change.
+Repeat for another retained stem. Existing reviewed assignments and original words remain available.
+";
 
 #[derive(Clone, Copy)]
 pub enum Command {
+    RefineLive,
     Prepare,
     Attribute,
     Review,
@@ -58,6 +68,7 @@ pub enum Command {
 impl Command {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
+            "refine-live" => Some(Self::RefineLive),
             "prepare-session" => Some(Self::Prepare),
             "attribute" => Some(Self::Attribute),
             "review-session" => Some(Self::Review),
@@ -70,6 +81,16 @@ impl Command {
     fn syntax(self) -> (&'static str, &'static [OptionKind]) {
         use OptionKind::*;
         match self {
+            Self::RefineLive => (
+                REFINE_LIVE,
+                &[
+                    Value("--index"),
+                    Value("--session"),
+                    Value("--timeline"),
+                    Value("--audio"),
+                    Value("--adapter-config"),
+                ],
+            ),
             Self::Prepare => (
                 PREPARE,
                 &[
@@ -313,7 +334,7 @@ fn inspect(mut args: Args) -> Result<(), String> {
             .get("expected_revision")
             .and_then(Value::as_u64)
             .ok_or("The review decision needs an expected_revision.")?;
-        review(&path, revision, &command)?
+        review(&path, revision, command)?
     } else {
         store::latest(&path)?
     };
@@ -360,6 +381,32 @@ pub fn run(command: Command, args: impl Iterator<Item = OsString>) -> Result<(),
     }
     let mut args = Args::parse(command, args)?;
     match command {
+        Command::RefineLive => {
+            let index = args.path("--index")?;
+            let session = args.path("--session")?;
+            let refinement = match (
+                args.one("--timeline"),
+                args.one("--audio"),
+                args.one("--adapter-config"),
+            ) {
+                (None, None, None) => None,
+                (Some(map), Some(audio), Some(config)) => Some((
+                    PathBuf::from(map),
+                    PathBuf::from(audio),
+                    PathBuf::from(config),
+                )),
+                _ => return Err("Select --timeline, --audio and --adapter-config together.".into()),
+            };
+            let result = super::live_import::run(&index, &session, refinement.as_ref())?;
+            println!(
+                "Live session {} revision {}. {} sources, {} turns.",
+                result.session_id,
+                result.revision,
+                result.sources.len(),
+                result.turns.len()
+            );
+            Ok(())
+        }
         Command::Prepare => prepare(args),
         Command::Attribute => analyze(args),
         Command::Review => inspect(args),

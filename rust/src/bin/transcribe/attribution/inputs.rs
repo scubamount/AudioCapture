@@ -237,7 +237,7 @@ fn speaker(item: &Value, namespace: &str) -> Option<String> {
 
 /// Compare only text and whitespace. Preserve byte positions in the source, including
 /// leading separators, trailing whitespace and the original form of Unicode.
-fn match_texts(
+pub(crate) fn match_texts(
     text: &str,
     items: &[Value],
     field: &str,

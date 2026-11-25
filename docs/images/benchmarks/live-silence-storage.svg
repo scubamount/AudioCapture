@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="615" viewBox="0 0 800 615" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Skip silence and Opus DTX</title>
+<desc id="desc">Synthetic call with long pauses. Skip silence off keeps 40.00 seconds per track. Regular Opus uses 136,198 bytes. Speech DTX uses 54,879 bytes. Skip silence on keeps 8.52 seconds per track. Regular Opus uses 48,148 bytes. Speech DTX uses 40,073 bytes. Saved call with continuous background sound. Skip silence off keeps 29.09 seconds per track. Regular Opus uses 157,593 bytes. Speech DTX uses 69,173 bytes. Skip silence on keeps 29.09 seconds per track. Regular Opus uses 157,593 bytes. Speech DTX uses 69,173 bytes.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="615.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Skip silence and Opus DTX</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">2 synchronized mono tracks  ·  32 kbps  ·  v2.0.0 encoder replay</text>
+<rect x="32.00" y="105.00" width="22.00" height="12.00" fill="#00685f"/>
+<text x="63.00" y="117.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Regular Opus</text>
+<rect x="206.00" y="105.00" width="22.00" height="12.00" fill="url(#hatch)"/>
+<text x="237.00" y="117.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Speech DTX</text>
+<text x="224.00" y="151.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Combined file size in kB  ·  1 kB = 1,000 bytes</text>
+<text x="32.00" y="199.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">Synthetic call with long pauses</text>
+<line x1="224.00" y1="230.00" x2="224.00" y2="357.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="224.00" y="223.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="336.50" y1="230.00" x2="336.50" y2="357.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="336.50" y="223.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">40</text>
+<line x1="449.00" y1="230.00" x2="449.00" y2="357.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="449.00" y="223.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80</text>
+<line x1="561.50" y1="230.00" x2="561.50" y2="357.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="561.50" y="223.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">120</text>
+<line x1="674.00" y1="230.00" x2="674.00" y2="357.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="674.00" y="223.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">160</text>
+<text x="32.00" y="253.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Skip silence Off</text>
+<text x="32.00" y="275.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">40.00 s per track</text>
+<rect x="224.00" y="240.00" width="383.06" height="14.00" fill="#00685f"/>
+<text x="616.06" y="252.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">136,198 B</text>
+<rect x="224.00" y="263.00" width="154.35" height="14.00" fill="url(#hatch)"/>
+<text x="387.35" y="275.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">54,879 B</text>
+<text x="32.00" y="314.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Skip silence On</text>
+<text x="32.00" y="336.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">8.52 s per track</text>
+<rect x="224.00" y="301.00" width="135.42" height="14.00" fill="#00685f"/>
+<text x="368.42" y="313.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">48,148 B</text>
+<rect x="224.00" y="324.00" width="112.71" height="14.00" fill="url(#hatch)"/>
+<text x="345.71" y="336.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">40,073 B</text>
+<text x="32.00" y="390.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">Saved call with continuous background sound</text>
+<line x1="224.00" y1="421.00" x2="224.00" y2="548.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="224.00" y="414.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="336.50" y1="421.00" x2="336.50" y2="548.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="336.50" y="414.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">40</text>
+<line x1="449.00" y1="421.00" x2="449.00" y2="548.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="449.00" y="414.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80</text>
+<line x1="561.50" y1="421.00" x2="561.50" y2="548.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="561.50" y="414.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">120</text>
+<line x1="674.00" y1="421.00" x2="674.00" y2="548.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="674.00" y="414.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">160</text>
+<text x="32.00" y="444.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Skip silence Off</text>
+<text x="32.00" y="466.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">29.09 s per track</text>
+<rect x="224.00" y="431.00" width="443.23" height="14.00" fill="#00685f"/>
+<text x="676.23" y="443.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">157,593 B</text>
+<rect x="224.00" y="454.00" width="194.55" height="14.00" fill="url(#hatch)"/>
+<text x="427.55" y="466.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">69,173 B</text>
+<text x="32.00" y="505.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Skip silence On</text>
+<text x="32.00" y="527.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">29.09 s per track</text>
+<rect x="224.00" y="492.00" width="443.23" height="14.00" fill="#00685f"/>
+<text x="676.23" y="504.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">157,593 B</text>
+<rect x="224.00" y="515.00" width="194.55" height="14.00" fill="url(#hatch)"/>
+<text x="427.55" y="527.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">69,173 B</text>
+<text x="32.00" y="590.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Skip silence shortens playback only when all selected sources are quiet.</text>
+</svg>

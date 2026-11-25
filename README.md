@@ -8,7 +8,7 @@ Record selected Windows applications, system audio, and one microphone on Window
 
 **[Download the latest stable ZIP](https://github.com/scubamount/AudioCapture/releases/latest/download/AudioCapture-Rust-Windows-x64.zip)** · [Latest release and checksum](https://github.com/scubamount/AudioCapture/releases/latest) · [v2.0.0 release](https://github.com/scubamount/AudioCapture/releases/tag/v2.0.0)
 
-Version 2.0.0 is the first versioned stable release of the Rust recorder in this fork.
+For independent recording, live transcription, and shared batch settings, use the [v2.1.0-dev.3 Windows prerelease](https://github.com/scubamount/AudioCapture/releases/tag/v2.1.0-dev.3). Its ZIP includes `config/transcription.example.json`. The workflow below describes this prerelease. For version 2.0.0, see the [stable operator guide](https://github.com/scubamount/AudioCapture/blob/v2.0.0/rust/README.md).
 
 To verify the download before extraction, save `SHA256SUMS.txt` from the same release as the ZIP. Run these commands in PowerShell from the download folder.
 
@@ -26,18 +26,17 @@ You can also make the portable ZIP from source. [Build guide](BUILD.md)
 
 ## Record and transcribe
 
-1. Select one or more **Programs**, or select **Capture all system audio**.
+1. Select one or more **Programs**, or select **Capture all system audio**. You can also choose a recent program.
 2. Select a **Microphone** if you need one.
-3. Choose a **Recording profile**.
-4. Choose an **Output folder**.
-5. Select **Start recording**.
-6. Select **Stop** to finish the files.
+3. Choose your **Recording settings** and **Output folder** before starting either activity.
+4. Select **Start recording** to save audio.
+5. Select **Start transcription** to create text during the call. Review the destination and approve the selected sources.
 
-[![Audio Capture recording profile menu showing six profiles and Custom](docs/images/recording-profiles.png)](docs/images/recording-profiles.png)
+Use **Stop recording** or **Stop transcription** to finish one output while the other continues. **Stop both** gives the active audio and transcript intervals the same cutoff. [Live workflow](docs/live-transcription.md) · [Narrow Windows layout](docs/images/live-transcription.png)
 
-Select **Transcribe files…** to choose completed recordings. This opens the separate `transcribe.exe` console. It sends audio to your chosen endpoint after you confirm the job. You can also run the worker directly.
+Select **Transcribe files…** to queue completed recordings. Approve each batch in the companion console. You can also run the worker directly. [Batch commands](rust/README.md#transcribe-completed-files)
 
-Use the worker's speaker commands to separate voices, review inferred names, and export complete transcripts for agent memory. The recorder loads no speaker model. Install the optional local adapter to run diarization on your computer. [Speaker workflow](docs/speaker-workflow.md)
+Use the worker's speaker commands on completed recordings to separate voices, review inferred names, and export approved transcripts for agent memory. Install the optional local adapter to run diarization on your computer. [Speaker workflow](docs/speaker-workflow.md)
 
 ## Recording size
 
@@ -45,13 +44,19 @@ In one two-track speech sample, regular 32 kbps mono Opus had the closest recogn
 
 ![Combined size of two speech tracks for four mono Opus profiles. Regular 32 kbps used 157,593 bytes. Speech DTX at 24 kbps used 53,271 bytes.](docs/images/benchmarks/opus-storage.svg)
 
+**Skip silence** shortens saved audio. **Speech DTX** can use fewer bytes during quiet intervals. See the paired measurements with each option on and off. [Storage comparison](docs/benchmarks/README.md#silence-removal-and-opus-dtx)
+
+Choose a recording profile before capture. [Recording profiles and tradeoffs](rust/README.md#choose-a-recording-profile) · [Profile menu](docs/images/recording-profiles.png)
+
 ## Documentation
 
 - Recording profiles, settings, and transcription steps. [Operator guide](rust/README.md)
+- Independent controls, live text, caching, and recovery. [Live transcription](docs/live-transcription.md)
 - Guides for recording, transcription, and troubleshooting. [Repository wiki](docs/wiki/README.md)
 - Measurements and commands to repeat them. [Performance](docs/performance.md)
 - OpenSpec changes. [Recording profiles](openspec/changes/add-efficient-recording-profiles) · [Rust recorder](openspec/changes/rewrite-windows-recorder) · [Transcription integration](openspec/changes/integrate-recorder-and-transcription)
 - Speaker attribution and memory export requirements. [OpenSpec change](openspec/changes/add-speaker-attribution-and-memory-export)
+- Independent capture and live transcription requirements. [OpenSpec change](openspec/changes/add-independent-live-transcription/proposal.md)
 
 ## Original C++ recorder
 

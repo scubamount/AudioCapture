@@ -3,31 +3,64 @@ use crate::{
         adapter::AdapterConfig,
         model::{Manifest, SourceInput, new_id},
     },
-    jobs, transport,
+    batch_queue, jobs, transport,
+};
+use audio_capture::transcription_config::{
+    GUI_CONFIG_ENV, GUI_PID_ENV, TranscriptionConfig, is_gui_environment_variable,
 };
 use serde_json::Value;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    let files = selected_files(args)?;
-    let selection = configure(files, &mut io::stdin().lock(), &mut io::stdout().lock());
-    match selection {
-        Ok(Some(options)) => {
-            let review = options.review.clone();
-            jobs::run(options)?;
-            println!("Transcription complete.");
-            if let Some(path) = review {
-                println!("Open the local review: {}", path.display());
+    run_with_speakers(args, None)
+}
+
+pub(super) fn run_with_speakers(
+    args: impl Iterator<Item = OsString>,
+    speaker_path: Option<&Path>,
+) -> Result<(), String> {
+    batch_queue::bind_gui()?;
+    let (files, separate_clocks, duplicates) = batch_queue::expand(selected_files(args)?)?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let snapshot = if std::env::var_os(GUI_PID_ENV).is_some() {
+        std::env::var_os(GUI_CONFIG_ENV)
+    } else {
+        None
+    };
+    let config = load_config(&exe, snapshot.as_deref())?;
+    let optional_path = if speaker_path.is_none() && io::stdin().is_terminal() {
+        print!("Local speaker session manifest (optional, Enter to skip): ");
+        io::stdout().flush().map_err(|e| e.to_string())?;
+        let reply = read_answer(&mut io::stdin().lock()).map_err(|e| e.to_string())?;
+        (!reply.is_empty()).then(|| PathBuf::from(reply.trim_matches('"')))
+    } else {
+        None
+    };
+    let speaker_path = speaker_path.or(optional_path.as_deref());
+    let mut speaker = None;
+    let mut entries = Vec::new();
+    let selection = configure_checked(
+        files,
+        &mut io::stdin().lock(),
+        &mut io::stdout().lock(),
+        separate_clocks,
+        duplicates,
+        config,
+        |options, output| {
+            entries = batch_queue::snapshot(options);
+            if let Some(path) = speaker_path {
+                speaker =
+                    Some(batch_queue::preview_speaker(path, output).map_err(io::Error::other)?);
             }
-            println!(
-                "For speaker attribution, run transcribe.exe prepare-session --session session.json"
-            );
-            Ok(())
-        }
+            batch_queue::print_issues(&entries, output)
+        },
+    );
+    match selection {
+        Ok(Some(options)) => batch_queue::submit(options, entries, speaker),
         Ok(None) => {
             println!("Cancelled.");
             Ok(())
@@ -37,6 +70,22 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
             Ok(())
         }
         Err(error) => Err(error.to_string()),
+    }
+}
+
+fn load_config(
+    exe: &Path,
+    snapshot: Option<&OsStr>,
+) -> Result<Option<TranscriptionConfig>, String> {
+    match snapshot {
+        Some(value) if value.is_empty() => Ok(None),
+        Some(value) => {
+            let snapshot = value
+                .to_str()
+                .ok_or("Recorder transcription config is not valid Unicode.")?;
+            TranscriptionConfig::from_gui_snapshot(snapshot).map(Some)
+        }
+        None => TranscriptionConfig::load_optional_next_to(exe),
     }
 }
 
@@ -95,16 +144,19 @@ impl<R: BufRead, W: Write> Prompts<'_, R, W> {
     }
 }
 
+#[cfg(test)]
 fn configure(
     files: Vec<PathBuf>,
     input: &mut impl BufRead,
     output: &mut impl Write,
 ) -> io::Result<Option<jobs::Options>> {
-    let mut ui = Prompts { input, output };
-    writeln!(
-        ui.output,
-        "Transcribe selected recordings. Press Ctrl+C to cancel."
-    )?;
+    configure_checked(files, input, output, false, false, None, |_, _| Ok(()))
+}
+
+fn ask_config(
+    ui: &mut Prompts<'_, impl BufRead, impl Write>,
+    default_dir: &Path,
+) -> io::Result<(TranscriptionConfig, String)> {
     let (base_url, destination) = loop {
         let base = ui.ask("API base URL (HTTPS or loopback HTTP, without credentials):")?;
         match transport::endpoint(&base, false) {
@@ -122,31 +174,90 @@ fn configure(
     let key_env = loop {
         let name =
             ui.ask("API key environment variable NAME (blank for none, never enter a key):")?;
-        if name.is_empty() {
-            break None;
+        if is_gui_environment_variable(OsStr::new(&name)) {
+            writeln!(
+                ui.output,
+                "Choose a variable name that the recorder does not reserve."
+            )?;
+            continue;
         }
         if name
             .bytes()
             .enumerate()
             .all(|(i, b)| b == b'_' || b.is_ascii_alphabetic() || (i > 0 && b.is_ascii_digit()))
         {
-            break Some(name);
+            break name;
         }
         writeln!(
             ui.output,
             "Use letters, digits, and underscores. Start with a letter or underscore."
         )?;
     };
-    let default_dir = files[0].with_file_name("transcripts");
     let dir = ui.ask(&format!("Output directory [{}]:", default_dir.display()))?;
     let output_dir = if dir.is_empty() {
-        default_dir
+        default_dir.to_path_buf()
     } else {
         dir.into()
     };
-    let same_session =
-        files.len() > 1 && ui.confirm("Do these files share one recording timeline?", false)?;
-    let timestamps = ui.confirm("Request timestamps?", false)?;
+    Ok((
+        TranscriptionConfig {
+            endpoint: base_url,
+            model,
+            api_key_env: key_env,
+            transcript_output_folder: output_dir,
+            ..Default::default()
+        },
+        destination,
+    ))
+}
+
+fn configure_checked<W: Write>(
+    files: Vec<PathBuf>,
+    input: &mut impl BufRead,
+    output: &mut W,
+    separate_clocks: bool,
+    selected_duplicates: bool,
+    config: Option<TranscriptionConfig>,
+    before_confirmation: impl FnOnce(&jobs::Options, &mut W) -> io::Result<()>,
+) -> io::Result<Option<jobs::Options>> {
+    let mut ui = Prompts { input, output };
+    writeln!(
+        ui.output,
+        "Transcribe selected recordings. Press Ctrl+C to cancel."
+    )?;
+    let default_dir = files[0].with_file_name("transcripts");
+    let configured = config.is_some();
+    let (config, destination) = match config {
+        Some(config) => {
+            let endpoint =
+                transport::endpoint(&config.endpoint, false).map_err(io::Error::other)?;
+            writeln!(ui.output, "Using transcription config.")?;
+            (config, transport::canonical_key(&endpoint))
+        }
+        None => ask_config(&mut ui, &default_dir)?,
+    };
+    let TranscriptionConfig {
+        endpoint: base_url,
+        model,
+        api_key_env,
+        transcript_output_folder,
+        request_segment_timestamps,
+        ..
+    } = config;
+    let key_env = (!api_key_env.is_empty()).then_some(api_key_env);
+    let output_dir = if transcript_output_folder.as_os_str().is_empty() {
+        default_dir
+    } else {
+        transcript_output_folder
+    };
+    let same_session = !separate_clocks
+        && files.len() > 1
+        && ui.confirm("Do these files share one recording timeline?", false)?;
+    let timestamps = if configured {
+        request_segment_timestamps
+    } else {
+        ui.confirm("Request timestamps?", false)?
+    };
     let chunk_long = ui.confirm("Split files over 25 MiB with FFmpeg?", false)?;
     let review = if ui.confirm("Create a local HTML review?", true)? {
         let time = SystemTime::now()
@@ -180,10 +291,7 @@ fn configure(
     if let Some(path) = &review {
         writeln!(ui.output, "Local HTML review: {}", path.display())?;
     }
-    if !ui.confirm("Send the selected recordings for transcription?", false)? {
-        return Ok(None);
-    }
-    Ok(Some(jobs::Options {
+    let mut options = jobs::Options {
         files,
         base_url,
         model,
@@ -193,8 +301,23 @@ fn configure(
         timestamps,
         chunk_long,
         review,
+        allow_duplicate_sources: selected_duplicates,
         ..Default::default()
-    }))
+    };
+    if !selected_duplicates && jobs::duplicate_coverage(&options.files) {
+        options.allow_duplicate_sources = ui.confirm(
+            "The selected mix repeats audio from the separate tracks. Include both?",
+            false,
+        )?;
+        if !options.allow_duplicate_sources {
+            return Ok(None);
+        }
+    }
+    before_confirmation(&options, ui.output)?;
+    if !ui.confirm("Send the selected recordings for transcription?", false)? {
+        return Ok(None);
+    }
+    Ok(Some(options))
 }
 
 pub fn prepare_session(
@@ -452,7 +575,7 @@ mod tests {
         let files = vec![PathBuf::from("one.opus"), PathBuf::from("two.opus")];
         let mut answers = concat!(
             "https://user:bad-password@example.org/v1\nhttps://example.org/?token=bad-query\n",
-            "https://example.org/v1\n\nasr\nbad-token\nAC_KEY\nresults\n",
+            "https://example.org/v1\n\nasr\nbad-token\nAUDIOCAPTURE_GUI_PID\nAC_KEY\nresults\n",
             "yes\nY\ny\nno\ninvalid\nyes\n"
         )
         .as_bytes();
@@ -469,9 +592,141 @@ mod tests {
         assert!(options.review.is_none());
         let text = String::from_utf8(log).unwrap();
         assert!(text.contains("Timelines: shared\nTimestamps: yes\nSplit oversized files: yes\nAPI key configured: yes\n"));
-        for secret in ["bad-password", "bad-query", "bad-token", "AC_KEY"] {
+        for secret in [
+            "bad-password",
+            "bad-query",
+            "bad-token",
+            "AUDIOCAPTURE_GUI_PID",
+            "AC_KEY",
+        ] {
             assert!(!text.contains(secret));
         }
+    }
+
+    #[test]
+    fn batch_config_uses_the_executable_directory_and_prefers_the_gui_snapshot() {
+        let root = std::env::temp_dir().join(new_id("batch_config_test").unwrap());
+        fs::create_dir(&root).unwrap();
+        let exe = root.join("transcribe.exe");
+        let config_path = root.join(audio_capture::transcription_config::FILENAME);
+        let profile = TranscriptionConfig {
+            endpoint: "http://localhost:9091/api".into(),
+            model: "test-recognizer".into(),
+            transcript_output_folder: PathBuf::from("results"),
+            request_segment_timestamps: true,
+            ..Default::default()
+        };
+        profile.save(&config_path).unwrap();
+        let config = load_config(&exe, None).unwrap().unwrap();
+        assert_eq!(config.transcript_output_folder, root.join("results"));
+        assert_eq!(config.model, "test-recognizer");
+        assert!(config.request_segment_timestamps);
+
+        let current = TranscriptionConfig {
+            model: "current-model".into(),
+            api_key_env: "TEST_API_KEY".into(),
+            transcript_output_folder: PathBuf::new(),
+            request_segment_timestamps: false,
+            ..profile
+        };
+        let snapshot = current.to_gui_snapshot().unwrap();
+        for reserved in [GUI_CONFIG_ENV, GUI_PID_ENV] {
+            let invalid = TranscriptionConfig {
+                api_key_env: reserved.to_ascii_lowercase(),
+                ..current.clone()
+            };
+            assert!(invalid.to_gui_snapshot().is_err());
+        }
+        assert_eq!(
+            load_config(&exe, Some(OsStr::new(&snapshot))).unwrap(),
+            Some(current)
+        );
+        assert_eq!(load_config(&exe, Some(OsStr::new(""))).unwrap(), None);
+        let bad = r#"{"api_key":"do-not-print"}"#;
+        let snapshot_error = load_config(&exe, Some(OsStr::new(bad))).unwrap_err();
+        assert!(!snapshot_error.contains("do-not-print"));
+        fs::write(&config_path, bad).unwrap();
+        assert!(load_config(&exe, None).is_err());
+        fs::remove_file(&config_path).unwrap();
+        assert_eq!(load_config(&exe, None).unwrap(), None);
+        fs::remove_dir(&root).unwrap();
+    }
+
+    #[test]
+    fn configured_batch_previews_effective_values_and_requires_explicit_consent() {
+        let files = vec![
+            PathBuf::from(r"C:\Audio\Discord.opus"),
+            PathBuf::from(r"C:\Audio\Mic.opus"),
+        ];
+        let mut config = TranscriptionConfig {
+            endpoint: "http://localhost:9091/api".into(),
+            model: "test-recognizer".into(),
+            api_key_env: "TEST_BATCH_KEY".into(),
+            transcript_output_folder: PathBuf::from(r"D:\Text"),
+            request_segment_timestamps: true,
+            ..Default::default()
+        };
+        for approved in [false, true] {
+            let input = if approved {
+                "y\nn\nn\ny\n"
+            } else {
+                "y\nn\nn\n\n"
+            };
+            let mut log = Vec::new();
+            let options = configure_checked(
+                files.clone(),
+                &mut input.as_bytes(),
+                &mut log,
+                false,
+                false,
+                Some(config.clone()),
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            let preview = String::from_utf8(log).unwrap();
+            assert!(preview.contains("Using transcription config."));
+            assert!(preview.contains("Send to: http://localhost:9091/api/audio/transcriptions"));
+            assert!(preview.contains("Model: test-recognizer"));
+            assert!(preview.contains("Timestamps: yes"));
+            assert!(preview.contains("API key configured: yes"));
+            for absent in [
+                "TEST_BATCH_KEY",
+                "API base URL (",
+                "Model name:",
+                "Output directory [",
+                "Request timestamps?",
+            ] {
+                assert!(!preview.contains(absent));
+            }
+            if let Some(options) = options {
+                assert!(approved);
+                assert_eq!(options.files, files);
+                assert_eq!(options.base_url, config.endpoint);
+                assert_eq!(options.model, config.model);
+                assert_eq!(
+                    options.key_env.as_deref(),
+                    Some(config.api_key_env.as_str())
+                );
+                assert_eq!(options.output_dir, config.transcript_output_folder);
+                assert!(options.same_session && options.timestamps && !options.chunk_long);
+                assert!(options.review.is_none());
+            } else {
+                assert!(!approved);
+            }
+        }
+        config.transcript_output_folder.clear();
+        let options = configure_checked(
+            files,
+            &mut &b"y\nn\nn\ny\n"[..],
+            &mut Vec::new(),
+            false,
+            false,
+            Some(config),
+            |_, _| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.output_dir, PathBuf::from(r"C:\Audio\transcripts"));
     }
 
     #[test]

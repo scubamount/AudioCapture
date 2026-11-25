@@ -4,6 +4,7 @@ pub(crate) mod decisions;
 pub(crate) mod export;
 pub(crate) mod importer;
 pub(crate) mod inputs;
+mod live_import;
 pub(crate) mod model;
 pub(crate) mod naming;
 pub(crate) mod store;
@@ -24,7 +25,10 @@ fn resolve(base: &Path, path: &Path) -> PathBuf {
     base.join(path)
 }
 
-fn select_sources<'a>(manifest: &'a Manifest, base: &Path) -> Result<Vec<&'a SourceInput>, String> {
+pub(crate) fn select_sources<'a>(
+    manifest: &'a Manifest,
+    base: &Path,
+) -> Result<Vec<&'a SourceInput>, String> {
     let mut ids = BTreeSet::new();
     for input in &manifest.sources {
         if !valid_id(&input.source_id) || !ids.insert(&input.source_id) {
@@ -265,6 +269,7 @@ fn recognize(
     input: &SourceInput,
     base: &Path,
     config: Option<&adapter::AdapterConfig>,
+    require_recognition: bool,
 ) -> Result<(), String> {
     let audio = resolve(base, &input.audio);
     let artifact = resolve(base, &input.artifact);
@@ -343,7 +348,9 @@ fn recognize(
     } else {
         "provider"
     });
-    if let Some(config) = config {
+    if let Some(config) = config
+        && (!require_recognition || !recognition_failed)
+    {
         let result = source
             .duration_ms
             .ok_or_else(|| "A verified duration is required for local diarization".to_owned())
@@ -537,6 +544,15 @@ fn order_turns(session: &mut Session) {
 }
 
 pub fn attribute(path: &Path) -> Result<Session, String> {
+    attribute_with_eligibility(path, None)
+}
+
+/// A batch can exclude unapproved or changed recordings before local analysis.
+/// Retain their source IDs and explain each gap in the same revision history.
+pub(crate) fn attribute_with_eligibility(
+    path: &Path,
+    excluded: Option<&BTreeMap<String, String>>,
+) -> Result<Session, String> {
     let manifest = store::manifest(path)?;
     let full_path = std::path::absolute(path).map_err(|e| e.to_string())?;
     let base = full_path
@@ -569,7 +585,28 @@ pub fn attribute(path: &Path) -> Result<Session, String> {
             ..Default::default()
         };
         for &input in &sources {
-            recognize(&mut result, input, base, adapter.as_ref())?;
+            if let Some(reason) = excluded.and_then(|sources| sources.get(&input.source_id)) {
+                result.sources.push(Source {
+                    source_id: input.source_id.clone(),
+                    role: input.role.clone(),
+                    status: "failed".into(),
+                    sha256: result
+                        .source_bindings
+                        .get(&input.source_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    gaps: vec![json!({"kind":"batch_selection","message":reason})],
+                    ..Default::default()
+                });
+                continue;
+            }
+            recognize(
+                &mut result,
+                input,
+                base,
+                adapter.as_ref(),
+                excluded.is_some(),
+            )?;
         }
         result.alternates.sort_unstable();
         result
@@ -648,10 +685,10 @@ pub fn attribute(path: &Path) -> Result<Session, String> {
     })
 }
 
-pub fn review(path: &Path, expected_revision: u64, command: &Value) -> Result<Session, String> {
+pub fn review(path: &Path, expected_revision: u64, command: Value) -> Result<Session, String> {
     let manifest = store::manifest(path)?;
-    let patch: decisions::ReviewPatch = serde_json::from_value(command.clone())
-        .map_err(|e| format!("Invalid review patch: {e}"))?;
+    let patch: decisions::ReviewPatch =
+        serde_json::from_value(command).map_err(|e| format!("Invalid review patch: {e}"))?;
     let (context, naming_key) = name_context(path.parent().unwrap_or(Path::new(".")), &manifest)?;
     store::update(path, &manifest, |previous| {
         let previous = previous.ok_or("Run attribute before reviewing this session")?;
@@ -777,9 +814,9 @@ mod tests {
         assert_eq!(attribute(&f.path).unwrap(), first);
         let turn = first.turns[0].turn_id.clone();
         let patch = json!({"session_id":m.session_id,"expected_revision":1,"operations":[{"op":"correct_text","turn_id":turn,"text":"Corrected."}]});
-        let corrected = review(&f.path, 1, &patch).unwrap();
+        let corrected = review(&f.path, 1, patch.clone()).unwrap();
         assert_eq!(corrected.revision, 2);
-        assert!(review(&f.path, 1, &patch).is_err());
+        assert!(review(&f.path, 1, patch).is_err());
         assert_eq!(store::latest(&f.path).unwrap(), corrected);
         assert_eq!(attribute(&f.path).unwrap(), corrected);
         fs::rename(f.dir.join("one.fake"), f.dir.join("renamed.fake")).unwrap();
@@ -796,6 +833,45 @@ mod tests {
                 .join(".audio-capture-sessions/s_demo/00000000000000000001.json")
                 .exists()
         );
+    }
+
+    #[test]
+    fn batch_exclusions_preserve_source_ids_and_eligible_text() {
+        let fixture = Fixture::new();
+        let mut manifest = fixture.manifest();
+        manifest.sources.push(SourceInput {
+            source_id: "src_two".into(),
+            role: "mic".into(),
+            audio: "unapproved.fake".into(),
+            artifact: "unapproved.txt".into(),
+            ..Default::default()
+        });
+        fixture.write(&manifest);
+        let excluded =
+            BTreeMap::from([("src_two".into(), "Outside the completed selection".into())]);
+        let session = attribute_with_eligibility(&fixture.path, Some(&excluded)).unwrap();
+        assert!(!session.complete);
+        assert_eq!(session.sources[0].raw_text, "A synthetic turn.\n");
+        assert_eq!(session.sources[1].source_id, "src_two");
+        assert_eq!(session.sources[1].gaps[0]["kind"], "batch_selection");
+    }
+
+    #[test]
+    fn batch_speaker_analysis_requires_a_readable_recognition_artifact() {
+        let fixture = Fixture::new();
+        let mut manifest = fixture.manifest();
+        manifest.sources[0].artifact = "missing.txt".into();
+        manifest.adapter = Some(adapter::AdapterConfig {
+            program: fixture.dir.join("adapter-must-not-start.exe"),
+            args: vec![],
+            timeout_seconds: 1,
+        });
+        fixture.write(&manifest);
+        let session = attribute_with_eligibility(&fixture.path, Some(&BTreeMap::new())).unwrap();
+        let source = &session.sources[0];
+        assert_eq!(source.status, "failed");
+        assert!(source.gaps.iter().any(|gap| gap["kind"] == "recognition"));
+        assert!(source.provenance.get("adapter_error").is_none());
     }
 
     #[test]
@@ -926,7 +1002,7 @@ mod tests {
         let named = store::latest(&f.path).unwrap();
         assert_eq!(named.speakers[0].display_name.as_deref(), Some("Nia"));
         let patch = json!({"session_id":"earlier","expected_revision":1,"operations":[{"op":"correct_text","turn_id":earlier.turns[0].turn_id,"text":"The audio was unclear."}]});
-        review(&prior_path, 1, &patch).unwrap();
+        review(&prior_path, 1, patch).unwrap();
         assert!(store::for_export(&f.path).is_err());
         let corrected = store::latest(&f.path).unwrap();
         assert!(corrected.speakers[0].display_name.is_none());

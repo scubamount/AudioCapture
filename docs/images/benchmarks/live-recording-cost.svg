@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="443" viewBox="0 0 800 443" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Recording cost vs v2.0.0</title>
+<desc id="desc">Median paired CPU change +0.135 percentage points. CPU limit +1 point applies to the median. Largest peak working-set change +1.109 MiB. The +2 MiB limit applies to every pair. Pair 1: CPU +0.634 points, peak working set +0.285 MiB. Pair 2: CPU -1.011 points, peak working set +1.059 MiB. Pair 3: CPU -0.872 points, peak working set +1.109 MiB. Pair 4: CPU +0.135 points, peak working set +1.051 MiB. Pair 5: CPU +1.023 points, peak working set +1.066 MiB.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/live-performance.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="443.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Recording cost vs v2.0.0</text>
+<text x="32.00" y="79.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">5 paired trials  ·  20 seconds each  ·  Two generated playback processes</text>
+<text x="32.00" y="106.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Matched size-optimized builds  ·  Window creation and painting excluded</text>
+<text x="32.00" y="147.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Pair</text>
+<text x="32.00" y="212.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">1</text>
+<text x="32.00" y="244.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">2</text>
+<text x="32.00" y="276.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">3</text>
+<text x="32.00" y="308.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">4</text>
+<text x="32.00" y="340.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">5</text>
+<line x1="101.00" y1="183.00" x2="101.00" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="101.00" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">-2</text>
+<line x1="173.25" y1="183.00" x2="173.25" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="173.25" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">-1</text>
+<line x1="245.50" y1="183.00" x2="245.50" y2="349.00" stroke="#172e35" stroke-width="1"/>
+<text x="245.50" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="317.75" y1="183.00" x2="317.75" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="317.75" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">+1</text>
+<line x1="390.00" y1="183.00" x2="390.00" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="390.00" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">+2</text>
+<text x="101.00" y="147.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">CPU (percentage points)</text>
+<rect x="287.27" y="203.00" width="8.00" height="8.00" fill="#00685f"/>
+<text x="303.27" y="212.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+0.63</text>
+<rect x="168.46" y="235.00" width="8.00" height="8.00" fill="#00685f"/>
+<text x="184.46" y="244.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">-1.01</text>
+<rect x="178.52" y="267.00" width="8.00" height="8.00" fill="#00685f"/>
+<text x="194.52" y="276.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">-0.87</text>
+<rect x="251.27" y="299.00" width="8.00" height="8.00" fill="#00685f"/>
+<text x="267.27" y="308.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+0.14</text>
+<rect x="315.44" y="331.00" width="8.00" height="8.00" fill="#00685f"/>
+<text x="331.44" y="340.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+1.02</text>
+<line x1="492.00" y1="183.00" x2="492.00" y2="349.00" stroke="#172e35" stroke-width="1"/>
+<text x="492.00" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0</text>
+<line x1="610.50" y1="183.00" x2="610.50" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="610.50" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">+1</text>
+<line x1="729.00" y1="183.00" x2="729.00" y2="349.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="729.00" y="175.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">+2</text>
+<line x1="729.00" y1="183.00" x2="729.00" y2="349.00" stroke="#172e35" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="492.00" y="147.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Peak working set (MiB)</text>
+<rect x="521.79" y="203.00" width="8.00" height="8.00" fill="#754382"/>
+<text x="537.79" y="212.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+0.29</text>
+<rect x="613.44" y="235.00" width="8.00" height="8.00" fill="#754382"/>
+<text x="629.44" y="244.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+1.06</text>
+<rect x="619.46" y="267.00" width="8.00" height="8.00" fill="#754382"/>
+<text x="635.46" y="276.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+1.11</text>
+<rect x="612.52" y="299.00" width="8.00" height="8.00" fill="#754382"/>
+<text x="628.52" y="308.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+1.05</text>
+<rect x="614.37" y="331.00" width="8.00" height="8.00" fill="#754382"/>
+<text x="630.37" y="340.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">+1.07</text>
+<text x="32.00" y="386.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Median CPU change +0.135 pp</text>
+<text x="32.00" y="412.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">+1 pp CPU limit applies to the median.</text>
+<text x="414.00" y="386.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Largest peak increase +1.109 MiB</text>
+<text x="414.00" y="412.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">+2 MiB dashed limit applies to each pair.</text>
+</svg>

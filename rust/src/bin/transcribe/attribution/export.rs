@@ -95,7 +95,7 @@ pub(super) fn event_id(stream: &str, entity: &str, revision: u64) -> String {
     model::stable_id("event", &[stream, entity, &revision.to_string()])
 }
 
-pub(super) fn local_destination(path: &Path) -> Result<(), String> {
+pub(crate) fn local_destination(path: &Path) -> Result<(), String> {
     fn drive(p: &Path) -> Result<u8, String> {
         match p.components().next() {
             Some(Component::Prefix(prefix)) => match prefix.kind() {
@@ -207,6 +207,17 @@ fn project(
     out: &mut Records,
 ) -> Result<Value, String> {
     let sid = &session.session_id;
+    let source_clock = |id: &str| {
+        if session
+            .sources
+            .iter()
+            .any(|s| s.source_id == id && s.provenance["time_basis"] == "capture_session")
+        {
+            "capture_session"
+        } else {
+            "saved_recording"
+        }
+    };
     let all = choice.turns.is_none();
     let mut sources = BTreeSet::new();
     let mut speakers = BTreeSet::new();
@@ -242,10 +253,10 @@ fn project(
             &turn.turn_id,
             json!({
                 "source_id":turn.source_id,"artifact_id":turn.artifact_id,"span_bytes":turn.span_bytes,
-                "speaker_ids":turn.speaker_ids,"attribution":vocabulary(&turn.attribution,&["resolved","overlap","unresolved","unknown"]),
+                "speaker_ids":turn.speaker_ids,"attribution":vocabulary(&turn.attribution,&["resolved","provisional","overlap","unresolved","unknown"]),
                 "text":text,"text_basis":basis,"start_ms":turn.start_ms,"end_ms":turn.end_ms,
                 "timing_method":vocabulary(&turn.timing_method,&["word","segment","words","aligned","untimed","provider","provider_word","provider_segment","chunk","unknown","none"]),
-                "time_basis":"saved_recording","predecessors":parents
+                "time_basis":source_clock(&turn.source_id),"predecessors":parents
             }),
         )?;
         sources.insert(turn.source_id.as_str());
@@ -304,7 +315,7 @@ fn project(
             "activity",
             &a.activity_id,
             json!({"source_id":a.source_id,"speaker_id":a.speaker_id,
-            "start_ms":a.start_ms,"end_ms":a.end_ms,"time_basis":"saved_recording"}),
+            "start_ms":a.start_ms,"end_ms":a.end_ms,"time_basis":source_clock(&a.source_id)}),
         )?;
     }
     for source in session
@@ -314,7 +325,7 @@ fn project(
     {
         let mut data = json!({"role":vocabulary(&source.role,&["program","mic","microphone","system","mix","other","application","combined"]),
             "status":vocabulary(&source.status,&["success","ok","silent","untimed","partial","failed","missing"]),
-            "time_basis":"saved_recording"});
+            "time_basis":source_clock(&source.source_id)});
         if valid_id(&source.artifact_id) {
             data["artifact_id"] = json!(source.artifact_id);
         }

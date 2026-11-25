@@ -1,6 +1,6 @@
 # Audio Capture for Windows
 
-Use Audio Capture on Windows 11 x64 to record program audio, system audio, and one microphone. The recorder saves files locally. Start the companion worker when you want to transcribe completed files.
+Use Audio Capture on Windows 11 x64 to record program audio, system audio, and one microphone. Start recording, live transcription, or both. You can also transcribe completed files in a batch.
 
 ## Open the portable package
 
@@ -8,21 +8,21 @@ Use Audio Capture on Windows 11 x64 to record program audio, system audio, and o
 2. Keep `audio-capture.exe` and `transcribe.exe` in the same folder.
 3. Run `audio-capture.exe`.
 
-The ZIP includes this guide and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for MP3 encoding. FFmpeg and ffprobe are optional tools for transcription.
+The ZIP includes this guide, `config/transcription.example.json`, and dependency notices at `licenses/DEPENDENCIES.md`. Windows N editions can require the Media Feature Pack for MP3 encoding. FFmpeg and ffprobe are optional tools for transcription.
 
 ## Record a Discord conversation
 
 1. Open Discord and join the call.
 2. Select **Refresh** in Audio Capture.
-3. Select the Discord process in **Programs**.
+3. Open **Select programs…** and select the Discord process.
 4. Select your input device in **Microphone**.
-5. Select **Speech (Opus 32 kbps mono)** in **Recording profile**.
+5. Open **Recording settings** and choose **Speech (Opus 32 kbps mono)**.
 6. Set **Recording mode** to **Separate files**.
 7. Leave **Skip silence** clear to retain quiet intervals.
 8. Select your **Output folder**. The default is `Documents\AudioCaptures` under your Windows user folder.
 9. Select **Start recording**.
 10. Check that the Discord and microphone meters respond when people speak.
-11. Select **Stop** to finalize the recordings.
+11. Select **Stop recording** to finalize the recordings.
 
 Select **Separate files** for one track per program plus your microphone. Discord's output track can contain several participants. **Combined file** saves one mix. **Both** saves the mix and the separate files.
 
@@ -30,7 +30,7 @@ Process capture includes the selected process and its children. If Discord is mi
 
 Use **Source levels** to check clipping and stereo cancellation during mono recording. Adjust **Program volume** or **Microphone volume** if necessary. **Add marker** adds a numbered point marker. The first marker creates an Audacity-compatible `Markers-<session>.labels.txt` file beside the recordings.
 
-All separate tracks share the same saved timeline. **Pause** removes time from every track. **Skip silence** removes shared quiet intervals. Markers use the saved timeline, so pause or silence removal shifts them relative to the wall clock.
+All separate tracks share the same saved timeline. **Pause recording** removes time from every track. **Skip silence** removes shared quiet intervals. Markers use the saved timeline, so pause or silence removal shifts them relative to the wall clock.
 
 ### Other sources and controls
 
@@ -40,6 +40,12 @@ All separate tracks share the same saved timeline. **Pause** removes time from e
 - Minimize the window to the notification area. Select the Audio Capture icon to restore it.
 - Enter a name in **Saved setup**. Select **Save setup** to store your current sources and recording settings. Use **Load setup** to reuse them.
 - After a device change, refresh and reselect an available microphone. If several running processes match a saved setup, select the intended process.
+
+### Use a recent program
+
+The recorder remembers programs after a successful start. Choose an entry in **Recent programs** and select **Use recent**. This selects its current process and its saved microphone, when available. Check the selected sources before you start an activity.
+
+Open **Manage recent** and select **Auto-select recent** if you usually capture the same program. The recorder can preselect a verified match when a single process tree matches. Select the source yourself when the executable has changed or the match is ambiguous. Use **Forget recent** for one entry or **Clear recent** for the list.
 
 ## Choose a recording profile
 
@@ -60,28 +66,99 @@ Leave **Skip silence** clear to retain quiet intervals on the saved timeline. DT
 
 For other WAV settings, choose 44100 Hz or 48000 Hz. **Auto** uses 48000 Hz. FLAC compresses PCM without loss. MP3 can add encoder delay and padding.
 
-## Transcribe from Audio Capture
+## Transcribe during a call
 
-Have the API base URL and model name for your transcription service ready. The service must accept multipart requests at `<base-url>/audio/transcriptions`. For example, the base URL `http://127.0.0.1:8000/v1` uses `http://127.0.0.1:8000/v1/audio/transcriptions`.
+1. Select the program and microphone for the transcript.
+2. Choose your recording **Output folder** if you also want to save audio.
+3. Open **Transcription settings**. Load a config or enter the API base URL and model.
+4. Choose the **Transcript output folder**. Leave it empty to use the recording output folder.
+5. If your service needs a bearer token, fill in **API key environment variable**.
+6. Select **Start transcription**.
+7. Check the confirmed sources, destination, model, and output path. Approve the interval to begin.
+8. Select **Stop transcription** to finish the text file. Follow the status until the final path appears.
 
-1. Stop the recording and wait for Audio Capture to return to idle.
-2. Select **Transcribe files…**.
-3. Select the completed Discord and microphone files in **Select files to transcribe**. The picker opens at the recording output folder.
-4. Enter the API base URL and model in the companion console. Use HTTPS for a remote service.
-5. If the service requires a bearer token, enter the name of its environment variable. Leave the prompt blank for a service that needs no token.
-6. Choose an output directory. Press Enter to use `transcripts` beside the first input.
-7. Answer yes to the shared-timeline question for synchronized Discord and microphone tracks from the same recording.
-8. Choose whether to request timestamps or split oversized files. Both choices default to no.
-9. Choose whether to create a local HTML review. This choice defaults to yes and creates a new file in the transcript directory.
-10. Check the inputs and destination. Type `y` at the final send prompt to proceed. Press Enter to cancel.
+Select **Start recording** during a text-only call to also save audio. Select **Stop recording** to close the audio while transcription continues. Select **Stop both** to give both active intervals the same cutoff.
 
-The console processes one file at a time and reports each result. Audio stays local until you confirm. The worker sends new jobs to the endpoint you enter. A loopback URL uses a service running on your computer. Press Enter when the console prompts you to close it.
+The worker sends short WAV chunks to your approved endpoint. Use HTTPS for a remote service. It writes committed text to a readable `.partial.txt` in the local cache. Select **Open transcript** to read the current text. The final TXT and its segment index go in the selected output folder. If recognition cannot complete a range, the result identifies missing coverage. A text-only interval saves no full-call audio.
 
-You can also start the same guided console from PowerShell.
+**Pause recording** and **Skip silence** affect the saved recording. Live transcription uses source time and can cover a pause or an interval with no saved audio. Opus DTX reduces audio bytes during quiet intervals while preserving their duration when **Skip silence** is off.
+
+### Load a transcription config
+
+Open **Transcription settings** and select **Load config…**. Choose your JSON file. Use **Save config…** to copy the current fields to a file.
+
+For a fresh extraction, put your file beside `audio-capture.exe` and name it `transcription.json`. The recorder loads it when it opens. Use **Load config…** for a file with any name or location. Each start still asks you to confirm the sources, endpoint, model, and output path.
+
+The example in `config/transcription.example.json` uses OpenAI's `whisper-1` model. Copy the example before you edit it. Set `endpoint` and `model` for your service. Use these keys in a version 1 file.
+
+| Key | Value |
+| --- | --- |
+| `version` | Use `1`. |
+| `endpoint` | API base URL including its path prefix, for example `https://api.openai.com/v1`. |
+| `model` | Model name understood by the service. |
+| `api_key_env` | Name of the environment variable that contains the key. Leave it empty if the service needs no key. |
+| `transcript_output_folder` | Destination for final text. An empty value uses the recording output folder. |
+| `request_segment_timestamps` | Set to `true` when your service supports timed segments. |
+| `speech_gating`, `speaker_labels` | Keep both at `false`. These features are in evaluation. |
+| `speaker_adapter_config` | Optional path to a local adapter config. Leave it empty when you have no adapter. |
+
+Relative folder and adapter paths resolve from the directory that contains the JSON file. Store API keys in environment variables and put only their names in the config.
+
+Run this check from the extracted folder to validate the example without opening the window or contacting the endpoint.
+
+```powershell
+$check = Start-Process -FilePath .\audio-capture.exe -Wait -PassThru -ArgumentList @(
+    '--check-transcription-config', '.\config\transcription.example.json'
+)
+$check.ExitCode
+```
+
+Exit code `0` means the file passed validation. Omit the path to check `transcription.json` beside the executable.
+
+### Recover transcript text
+
+If Windows closes the worker or the output folder fails, inspect the cached partial text. From the folder that contains `transcribe.exe`, run these commands. Replace the ID and choose an output folder you can write to.
+
+```powershell
+.\transcribe.exe recover-live list
+.\transcribe.exe recover-live publish INTERVAL --output-dir '.\recovered'
+```
+
+Recovery publishes available committed words and reports missing coverage. To remove an unwanted recovery entry, run `recover-live discard INTERVAL --confirm`.
+
+## Transcribe completed files
+
+**Transcribe files…** uses the endpoint, model, API key variable, output folder, and timestamp setting shown in **Transcription settings**. You can load a config or enter the settings once. The service must accept multipart requests at `<base-url>/audio/transcriptions`.
+
+1. Select **Transcribe files…**.
+2. Select the saved audio files.
+3. If you have no transcription config, enter the service settings when prompted.
+4. Choose a shared timeline for synchronized tracks from the same recording.
+5. Choose whether to split oversized files and create a local HTML review.
+6. Check the listed inputs, endpoint, model, and output folder.
+7. Type `y` at the final send prompt to proceed. Press Enter to cancel.
+
+You can select completed files during recording or live transcription. Audio stays local until you confirm. The worker reports each result. Live work takes priority when it shares the endpoint with a batch. A loopback URL uses a service running on your computer.
+
+The picker can open a finalized recording timeline file such as `Recording-<id>.timeline.jsonl`. Review its available audio outputs in the console. Choose the separate tracks or the mix to avoid duplicate speech.
+
+You can also start the guided console from PowerShell. It reads `transcription.json` beside `transcribe.exe`. An empty output folder in this standalone mode uses `transcripts` beside the first input.
 
 ```powershell
 .\transcribe.exe --guided -- '.\Discord.opus' '.\Microphone.opus'
 ```
+
+Select **Batch queue…** to open the queue console. These PowerShell commands also work. Use the ID from the list.
+
+```powershell
+.\transcribe.exe batch-queue list
+.\transcribe.exe batch-queue status ID
+.\transcribe.exe batch-queue pause ID
+.\transcribe.exe batch-queue resume ID
+.\transcribe.exe batch-queue cancel ID
+```
+
+Resume returns eligible work to the queue. An unknown result might have completed at the endpoint. Check the service before you run `batch-queue resume ID --retry-unknown`.
 
 ### Set a bearer token for the session
 
@@ -93,7 +170,7 @@ $env:TRANSCRIPTION_API_KEY = [Net.NetworkCredential]::new('', $secret).Password
 .\audio-capture.exe
 ```
 
-Enter `TRANSCRIPTION_API_KEY` at the console's environment variable prompt. Run scripted commands that name this variable from the same shell. The worker reads the token from the environment and sends it as a bearer credential.
+Enter `TRANSCRIPTION_API_KEY` in the live settings or at the console's environment variable prompt. Run scripted commands that name this variable from the same shell. The worker reads the token from the environment and sends it as a bearer credential.
 
 ## Script transcription in PowerShell
 
@@ -153,6 +230,10 @@ A job with an unknown result may have completed on the server. Check the service
 
 Use completed audio and its transcript. Detected speakers receive labels within the session. Inferred names cite transcript evidence. A review can confirm a person or correct the text.
 
+For finalized live text, import its segment index with `refine-live`. Use the resulting session in `review-session`. To refine from saved audio, use the same session with `--timeline`, `--audio`, and `--adapter-config`. Run `refine-live --help` for the full command.
+
+Live speaker labels and recognition speech gating are evaluation features. Use the completed-file workflow for speaker review with a local adapter.
+
 For Discord and microphone recordings, use **Separate files** when possible. A test used the Pyannote and TitaNet models on 24 synthetic calls with reference text and times. Separate tracks had 7.66% diarization error and recovered 91.82% of isolated turns. Mixing those calls gave 21.38% error and 79.09% recall, missing both test targets.
 
 1. Run `.\transcribe.exe prepare-session --session .\session.json` to choose inputs and create a session manifest.
@@ -181,7 +262,8 @@ Copy the batch manifest path from the export receipt. Run `.\transcribe.exe impo
 
 - **Discord or microphone is quiet.** Check the selected process and input device. Refresh after a restart or device change. Check Windows microphone access and the two source meters.
 - **A source drops out.** Check the recorder status. Other healthy sources can continue. Opus writes an Ogg checkpoint about once per second, which can leave a playable prefix after an interruption.
-- **The transcription control is unavailable.** Stop the active recording or monitor session.
+- **Live transcription is waiting.** A batch request may still own the available slot. Follow the status before relying on transcript coverage.
+- **The live transcript could not save.** Use the displayed partial text path or the recovery command. Select a folder you can write to.
 - **The companion console fails to start.** Check that `transcribe.exe` is beside the recorder.
 - **The endpoint rejects the request.** Check the URL prefix, model name, token variable, media format, and upload limit. Use `--language` only with a code your service accepts.
 - **A timed segment is missing.** Check that the endpoint supports `verbose_json` with segments and that ffprobe is on PATH for full-file review.

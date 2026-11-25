@@ -3,20 +3,42 @@ use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 
+use audio_capture::transcription_config::{
+    GUI_CONFIG_ENV, GUI_PID_ENV, TranscriptionConfig, is_gui_environment_variable,
+};
 use windows::Win32::Foundation::{E_INVALIDARG, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
 use windows::Win32::System::Threading::{
-    CREATE_NEW_CONSOLE, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+    CREATE_NEW_CONSOLE, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, PROCESS_INFORMATION,
+    STARTUPINFOW,
 };
 use windows::core::{HRESULT, PCWSTR, PWSTR};
 
 const QUOTE: u16 = b'"' as u16;
 const BACKSLASH: u16 = b'\\' as u16;
 
-pub(crate) fn launch_transcription(files: &[PathBuf]) -> Result<(), String> {
+pub(crate) fn launch_transcription(
+    files: &[PathBuf],
+    config: Option<&TranscriptionConfig>,
+) -> Result<(), String> {
+    let snapshot = config
+        .map(TranscriptionConfig::to_gui_snapshot)
+        .transpose()?;
+    launch_console(
+        "--guided --",
+        files,
+        Some(snapshot.as_deref().unwrap_or("")),
+    )
+}
+
+pub(crate) fn launch_batch_manager() -> Result<(), String> {
+    launch_console("batch-queue manage", &[], None)
+}
+
+fn launch_console(mode: &str, files: &[PathBuf], snapshot: Option<&str>) -> Result<(), String> {
     let recorder = std::env::current_exe()
         .map_err(|error| format!("Could not find the recorder executable. {error}"))?;
     let worker = recorder.with_file_name("transcribe.exe");
-    start_worker(&worker, files).map_err(|error| {
+    start_worker(&worker, mode, files, snapshot).map_err(|error| {
         let worker = worker.display();
         let code = error.code();
         if [ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND]
@@ -30,14 +52,20 @@ pub(crate) fn launch_transcription(files: &[PathBuf]) -> Result<(), String> {
     })
 }
 
-fn start_worker(worker: &Path, files: &[PathBuf]) -> windows::core::Result<()> {
+fn start_worker(
+    worker: &Path,
+    mode: &str,
+    files: &[PathBuf],
+    snapshot: Option<&str>,
+) -> windows::core::Result<()> {
     let application: Vec<_> = worker.as_os_str().encode_wide().chain(Some(0)).collect();
-    let mut command_line = guided_command_line(worker, files)?;
+    let mut command_line = worker_command_line(worker, mode, files)?;
     let startup = STARTUPINFOW {
         cb: size_of::<STARTUPINFOW>() as u32,
         ..Default::default()
     };
     let mut process = PROCESS_INFORMATION::default();
+    let environment = gui_environment(std::env::vars_os(), std::process::id(), snapshot);
 
     // Let Windows connect all three standard handles to the new console.
     // The UTF-16 strings are terminated and the command line can be modified.
@@ -48,8 +76,8 @@ fn start_worker(worker: &Path, files: &[PathBuf]) -> windows::core::Result<()> {
             None,
             None,
             false,
-            CREATE_NEW_CONSOLE,
-            None,
+            CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+            Some(environment.as_ptr().cast()),
             PCWSTR::null(),
             &startup,
             &mut process,
@@ -61,12 +89,42 @@ fn start_worker(worker: &Path, files: &[PathBuf]) -> windows::core::Result<()> {
     Ok(())
 }
 
-fn guided_command_line(worker: &Path, files: &[PathBuf]) -> windows::core::Result<Vec<u16>> {
+// Attach the recorder lifetime to this guided batch without changing the parent environment.
+fn gui_environment(
+    vars: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    pid: u32,
+    snapshot: Option<&str>,
+) -> Vec<u16> {
+    let mut vars: Vec<_> = vars
+        .filter(|(name, _)| !is_gui_environment_variable(name))
+        .collect();
+    vars.push((GUI_PID_ENV.into(), pid.to_string().into()));
+    if let Some(snapshot) = snapshot {
+        vars.push((GUI_CONFIG_ENV.into(), snapshot.into()));
+    }
+    vars.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
+    let mut block = Vec::new();
+    for (name, value) in vars {
+        block.extend(name.encode_wide());
+        block.push(b'=' as u16);
+        block.extend(value.encode_wide());
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
+fn worker_command_line(
+    worker: &Path,
+    mode: &str,
+    files: &[PathBuf],
+) -> windows::core::Result<Vec<u16>> {
     // The executable path is argv[0]. Windows file names cannot contain quotes.
     let mut command_line = vec![QUOTE];
     command_line.extend(worker.as_os_str().encode_wide());
     command_line.push(QUOTE);
-    command_line.extend(" --guided --".encode_utf16());
+    command_line.push(b' ' as u16);
+    command_line.extend(mode.encode_utf16());
     for file in files {
         append_argument(&mut command_line, file.as_os_str());
     }
@@ -107,6 +165,24 @@ mod tests {
     use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
 
     #[test]
+    fn guided_child_receives_its_parent_once_without_changing_other_values() {
+        let env = gui_environment(
+            [
+                ("A".into(), "left=right".into()),
+                ("audiocapture_gui_pid".into(), "old".into()),
+                ("audiocapture_gui_config".into(), "old config".into()),
+            ]
+            .into_iter(),
+            92,
+            Some(r#"{"model":"current"}"#),
+        );
+        assert_eq!(
+            String::from_utf16(&env).unwrap(),
+            "A=left=right\0AUDIOCAPTURE_GUI_CONFIG={\"model\":\"current\"}\0AUDIOCAPTURE_GUI_PID=92\0\0"
+        );
+    }
+
+    #[test]
     fn guided_command_line_round_trips_windows_arguments() {
         let worker = Path::new(r"C:\Example Apps\Audio Capture\transcribe.exe");
         let unusual_utf16 = OsString::from_wide(&[0xd800]);
@@ -119,7 +195,7 @@ mod tests {
             unusual_utf16.as_os_str(),
         ];
         let files: Vec<_> = arguments.iter().map(PathBuf::from).collect();
-        let command_line = guided_command_line(worker, &files).unwrap();
+        let command_line = worker_command_line(worker, "--guided --", &files).unwrap();
         let mut count = 0;
         let argv = unsafe { CommandLineToArgvW(command_line.as_ptr(), &mut count) };
         assert!(!argv.is_null());
@@ -143,7 +219,7 @@ mod tests {
     fn guided_command_line_rejects_an_embedded_null() {
         let invalid = PathBuf::from(OsString::from_wide(&[b'a' as u16, 0, b'b' as u16]));
         let worker = Path::new(r"C:\Example Apps\transcribe.exe");
-        let error = guided_command_line(worker, &[invalid]).unwrap_err();
+        let error = worker_command_line(worker, "--guided --", &[invalid]).unwrap_err();
         assert_eq!(error.code(), E_INVALIDARG);
     }
 }

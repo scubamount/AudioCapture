@@ -1,0 +1,1439 @@
+{
+  "date": "2026-11-24",
+  "scope": "Single Windows host, two generated application playback PIDs or generated worker pipe input.",
+  "reference": {
+    "os": "Windows 11 Pro 10.0.26200",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "physical_cores": 8,
+    "logical_processors": 16,
+    "installed_ram_gib": 32,
+    "drive": "Samsung SSD 970 EVO 500 GB NVMe",
+    "power_plan": "Balanced",
+    "rustc": "1.99.0 b940084d7",
+    "target": "x86_64-pc-windows-msvc",
+    "crt": "static",
+    "python": "3.14.0",
+    "psutil": "7.1.3",
+    "ffmpeg": "8.1.1"
+  },
+  "baseline_tag": "v2.0.0",
+  "baseline_commit": "d96b44214a7caae3c380423201f91e553946ef6d",
+  "recording_only": [
+    {
+      "comparison": "original profile v2.0.0 vs size profile candidate",
+      "entry_point": "Rust example constructing the real Session API with WASAPI process capture and Opus encoders; excludes native HWND and painting.",
+      "baseline_exe_sha256": "eabe7957818f555d576666a9c322563d42e02ab3ce106b99bf71ddae4e8bf836",
+      "candidate_exe_sha256": "fcfe4cb736b538ef55a09914a898097485aa37c72f93a0b15d31feddecd9cf50",
+      "generated_wav_sha256": [
+        "028a1fbc65b6d74d730f408502a2ee487f37b518e15f801dc45ca96e483b0870",
+        "dec3dc3aa122bf320b3ee058e8b027f863c6a2ef593378ccf534ab35fc178b05"
+      ],
+      "duration_per_trial_s": 20,
+      "pair_count": 5,
+      "recording_format": "32 kbps mono Opus, two separate files, no silence removal or DTX",
+      "deltas": {
+        "median_cpu_delta_points": 0.4651,
+        "p95_cpu_delta_points": 0.8608,
+        "median_peak_working_set_delta_bytes": 913408,
+        "max_peak_working_set_delta_bytes": 1024000
+      },
+      "runs": [
+        {
+          "pair": 1,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.3366,
+          "windows_peak_working_set_bytes": 12558336,
+          "seconds_monitored": 19.873,
+          "output_seconds": [
+            20.056708,
+            20.056708
+          ],
+          "minimum_tone_amplitude_ratio": 62.82,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 1,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.4136,
+          "windows_peak_working_set_bytes": 13537280,
+          "seconds_monitored": 19.896,
+          "output_seconds": [
+            20.087,
+            20.087
+          ],
+          "minimum_tone_amplitude_ratio": 70.24,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 2,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.8025,
+          "windows_peak_working_set_bytes": 13426688,
+          "seconds_monitored": 19.937,
+          "output_seconds": [
+            20.042854,
+            20.042854
+          ],
+          "minimum_tone_amplitude_ratio": 82.15,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 2,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.3374,
+          "windows_peak_working_set_bytes": 12668928,
+          "seconds_monitored": 19.861,
+          "output_seconds": [
+            20.069083,
+            20.069083
+          ],
+          "minimum_tone_amplitude_ratio": 51.77,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 3,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.0224,
+          "windows_peak_working_set_bytes": 12738560,
+          "seconds_monitored": 19.867,
+          "output_seconds": [
+            20.048458,
+            20.048458
+          ],
+          "minimum_tone_amplitude_ratio": 64.29,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 3,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.8832,
+          "windows_peak_working_set_bytes": 13520896,
+          "seconds_monitored": 19.913,
+          "output_seconds": [
+            20.036979,
+            20.036979
+          ],
+          "minimum_tone_amplitude_ratio": 109.92,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 4,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.4189,
+          "windows_peak_working_set_bytes": 13611008,
+          "seconds_monitored": 19.822,
+          "output_seconds": [
+            20.037521,
+            20.037521
+          ],
+          "minimum_tone_amplitude_ratio": 118.1,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 4,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.9534,
+          "windows_peak_working_set_bytes": 12587008,
+          "seconds_monitored": 19.997,
+          "output_seconds": [
+            20.054875,
+            20.054875
+          ],
+          "minimum_tone_amplitude_ratio": 104.15,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 5,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.0982,
+          "windows_peak_working_set_bytes": 12730368,
+          "seconds_monitored": 19.919,
+          "output_seconds": [
+            20.060604,
+            20.060604
+          ],
+          "minimum_tone_amplitude_ratio": 53.1,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 5,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.8722,
+          "windows_peak_working_set_bytes": 13643776,
+          "seconds_monitored": 20.029,
+          "output_seconds": [
+            20.083833,
+            20.083833
+          ],
+          "minimum_tone_amplitude_ratio": 63.62,
+          "stop_status": "Recording stopped"
+        }
+      ],
+      "unfiltered_result_sha256": "52a885247469773c1c6e3ad5904f89207b5432e9b708fe27500b477bd3c80c4d"
+    },
+    {
+      "comparison": "size profile v2.0.0 vs size profile candidate",
+      "entry_point": "Rust example constructing the real Session API with WASAPI process capture and Opus encoders; excludes native HWND and painting.",
+      "baseline_exe_sha256": "5e63b720128801250fe703f8a94fc2fadeb0767e8c9cc6a4b79a554c875d9a2d",
+      "candidate_exe_sha256": "fcfe4cb736b538ef55a09914a898097485aa37c72f93a0b15d31feddecd9cf50",
+      "generated_wav_sha256": [
+        "028a1fbc65b6d74d730f408502a2ee487f37b518e15f801dc45ca96e483b0870",
+        "dec3dc3aa122bf320b3ee058e8b027f863c6a2ef593378ccf534ab35fc178b05"
+      ],
+      "duration_per_trial_s": 20,
+      "pair_count": 5,
+      "recording_format": "32 kbps mono Opus, two separate files, no silence removal or DTX",
+      "deltas": {
+        "median_cpu_delta_points": 0.1352,
+        "p95_cpu_delta_points": 1.0234,
+        "median_peak_working_set_delta_bytes": 1110016,
+        "max_peak_working_set_delta_bytes": 1163264
+      },
+      "runs": [
+        {
+          "pair": 1,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.8773,
+          "windows_peak_working_set_bytes": 13336576,
+          "seconds_monitored": 19.976,
+          "output_seconds": [
+            20.053042,
+            20.053042
+          ],
+          "minimum_tone_amplitude_ratio": 142.77,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 1,
+          "build": "candidate",
+          "cpu_percent_one_core": 2.5108,
+          "windows_peak_working_set_bytes": 13635584,
+          "seconds_monitored": 19.914,
+          "output_seconds": [
+            20.037188,
+            20.037188
+          ],
+          "minimum_tone_amplitude_ratio": 75.4,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 2,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.0233,
+          "windows_peak_working_set_bytes": 13660160,
+          "seconds_monitored": 19.85,
+          "output_seconds": [
+            20.051479,
+            20.051479
+          ],
+          "minimum_tone_amplitude_ratio": 100.87,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 2,
+          "build": "baseline",
+          "cpu_percent_one_core": 2.0343,
+          "windows_peak_working_set_bytes": 12550144,
+          "seconds_monitored": 19.97,
+          "output_seconds": [
+            20.049458,
+            20.049458
+          ],
+          "minimum_tone_amplitude_ratio": 77.79,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 3,
+          "build": "baseline",
+          "cpu_percent_one_core": 2.2801,
+          "windows_peak_working_set_bytes": 12447744,
+          "seconds_monitored": 19.873,
+          "output_seconds": [
+            20.048771,
+            20.048771
+          ],
+          "minimum_tone_amplitude_ratio": 60.82,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 3,
+          "build": "candidate",
+          "cpu_percent_one_core": 1.4084,
+          "windows_peak_working_set_bytes": 13611008,
+          "seconds_monitored": 19.969,
+          "output_seconds": [
+            20.040854,
+            20.040854
+          ],
+          "minimum_tone_amplitude_ratio": 69.9,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 4,
+          "build": "candidate",
+          "cpu_percent_one_core": 2.187,
+          "windows_peak_working_set_bytes": 13549568,
+          "seconds_monitored": 20.004,
+          "output_seconds": [
+            20.036979,
+            20.036979
+          ],
+          "minimum_tone_amplitude_ratio": 93.64,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 4,
+          "build": "baseline",
+          "cpu_percent_one_core": 2.0518,
+          "windows_peak_working_set_bytes": 12447744,
+          "seconds_monitored": 19.8,
+          "output_seconds": [
+            20.041792,
+            20.041792
+          ],
+          "minimum_tone_amplitude_ratio": 106.18,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 5,
+          "build": "baseline",
+          "cpu_percent_one_core": 1.2571,
+          "windows_peak_working_set_bytes": 12562432,
+          "seconds_monitored": 19.887,
+          "output_seconds": [
+            20.052625,
+            20.052625
+          ],
+          "minimum_tone_amplitude_ratio": 77.64,
+          "stop_status": "Recording stopped"
+        },
+        {
+          "pair": 5,
+          "build": "candidate",
+          "cpu_percent_one_core": 2.2805,
+          "windows_peak_working_set_bytes": 13680640,
+          "seconds_monitored": 19.87,
+          "output_seconds": [
+            20.057146,
+            20.057146
+          ],
+          "minimum_tone_amplitude_ratio": 62.23,
+          "stop_status": "Recording stopped"
+        }
+      ],
+      "unfiltered_result_sha256": "d8de5ba8d749cf523b68b7b1ac926c6536aa7bb868c48458e80e0225adedf5b4"
+    }
+  ],
+  "conventional_asr": {
+    "balanced": {
+      "exe_sha256": "bdc64cbd173307e7736d4d4102b6351a192ab5f2003197a3d6d5e1afdc07ba0b",
+      "audio_seconds": 60,
+      "clock_speed": 1.0,
+      "mock_delay_s": 0.45,
+      "request_count": 30,
+      "received_frames": 5760000,
+      "expected_frames": 5760000,
+      "continuous_coverage": true,
+      "unobserved_results": 0,
+      "final_text_matches": true,
+      "terminal_state": "complete",
+      "p95_end_to_visible_s": 1.5729627999971854,
+      "p95_reply_to_visible_s": 0.14500669999688398,
+      "stop_to_exit_s": 1.8824822000024142,
+      "worker_resources": {
+        "elapsed_s": 58.948,
+        "samples": 60,
+        "cpu_percent_one_core": 0.5566,
+        "peak_working_set_bytes": 12660736,
+        "p95_sampled_working_set_bytes": 12423168
+      },
+      "latency_observation": "50 ms polling on readable partial text, or final text if publication races observation",
+      "mock_server_version": "local-performance-mock-v1",
+      "measured_reply_max_s": 0.468292,
+      "all_responses_to_visible_max_s": 0.192731,
+      "unfiltered_result_sha256": "8284f4c38535f526b870a79d1c810477ed62600515a7578c49c48ba34227c5bf"
+    },
+    "overload_16_sources": {
+      "exe_sha256": "bdc64cbd173307e7736d4d4102b6351a192ab5f2003197a3d6d5e1afdc07ba0b",
+      "audio_seconds": 24,
+      "clock_speed": 1.0,
+      "sources": 16,
+      "explicit_gap_frames": 13056000,
+      "journal_covers_interval": true,
+      "max_sampled_temp_bytes": 0,
+      "mock_delay_s": 1.0,
+      "request_count": 28,
+      "received_frames": 5376000,
+      "expected_frames": 18432000,
+      "continuous_coverage": false,
+      "unobserved_results": 0,
+      "final_text_matches": true,
+      "terminal_state": "incomplete",
+      "p95_end_to_visible_s": 25.217547400010517,
+      "p95_reply_to_visible_s": 0.09300779999466613,
+      "stop_to_exit_s": 9.400184099999024,
+      "worker_resources": {
+        "elapsed_s": 22.996,
+        "samples": 24,
+        "cpu_percent_one_core": 2.3102,
+        "peak_working_set_bytes": 25866240,
+        "peak_private_commit_bytes": 19177472,
+        "p95_sampled_working_set_bytes": 23883776
+      },
+      "latency_observation": "50 ms polling on readable partial text, or final text if publication races observation",
+      "mock_server_version": "local-performance-mock-v1",
+      "measured_reply_max_s": 1.022754,
+      "all_responses_to_visible_max_s": 0.093008,
+      "unfiltered_result_sha256": "15996954c5485512786e70dea43ea449cb700be7a626dfa4d43962d6bf623575"
+    },
+    "final_balanced": {
+      "exe_sha256": "785d814f77337f7a2811f2a37ccf92b87a723f5e401fff8f0b1f216d4a40aee3",
+      "audio_seconds": 60,
+      "clock_speed": 1.0,
+      "sources": 2,
+      "explicit_gap_frames": 0,
+      "journal_covers_interval": true,
+      "max_sampled_temp_bytes": 0,
+      "mock_delay_s": 0.45,
+      "request_count": 30,
+      "received_frames": 5760000,
+      "expected_frames": 5760000,
+      "continuous_coverage": true,
+      "unobserved_results": 0,
+      "final_text_matches": true,
+      "terminal_state": "complete",
+      "p95_end_to_visible_s": 1.0225323000049684,
+      "p95_reply_to_visible_s": 0.07657600000675302,
+      "stop_to_exit_s": 1.0296145000029355,
+      "worker_resources": {
+        "elapsed_s": 58.999,
+        "samples": 60,
+        "cpu_percent_one_core": 1.1918,
+        "peak_working_set_bytes": 12779520,
+        "peak_private_commit_bytes": 5054464,
+        "p95_sampled_working_set_bytes": 12480512
+      },
+      "pressure_and_drain_peak_private_bytes": 5054464,
+      "pressure_and_drain_peak_working_set_bytes": 12779520,
+      "latency_observation": "50 ms polling on readable partial text, or final text if publication races observation",
+      "mock_server_version": "local-performance-mock-v1",
+      "measured_reply_max_s": 0.462997,
+      "all_responses_to_visible_max_s": 0.090684,
+      "unfiltered_result_sha256": "9f2507c9f912eb4452d21544ba9b560675ab3fdf2493f8a966a66b9af4e0afe5"
+    },
+    "final_pressure": {
+      "exe_sha256": "785d814f77337f7a2811f2a37ccf92b87a723f5e401fff8f0b1f216d4a40aee3",
+      "audio_seconds": 24,
+      "clock_speed": 1.0,
+      "sources": 16,
+      "explicit_gap_frames": 13056000,
+      "journal_covers_interval": true,
+      "max_sampled_temp_bytes": 0,
+      "mock_delay_s": 1.0,
+      "request_count": 28,
+      "received_frames": 5376000,
+      "expected_frames": 18432000,
+      "continuous_coverage": false,
+      "unobserved_results": 0,
+      "final_text_matches": true,
+      "terminal_state": "incomplete",
+      "p95_end_to_visible_s": 24.81808510000701,
+      "p95_reply_to_visible_s": 0.05515620000369381,
+      "stop_to_exit_s": 8.927879000009852,
+      "worker_resources": {
+        "elapsed_s": 22.989,
+        "samples": 24,
+        "cpu_percent_one_core": 0.2719,
+        "peak_working_set_bytes": 25788416,
+        "peak_private_commit_bytes": 18599936,
+        "p95_sampled_working_set_bytes": 24256512
+      },
+      "pressure_and_drain_peak_private_bytes": 18599936,
+      "pressure_and_drain_peak_working_set_bytes": 25788416,
+      "latency_observation": "50 ms polling on readable partial text, or final text if publication races observation",
+      "mock_server_version": "local-performance-mock-v1",
+      "measured_reply_max_s": 1.002815,
+      "all_responses_to_visible_max_s": 0.123931,
+      "unfiltered_result_sha256": "c4f180c80653ec79ce29e2b0e52c6105b9e96117f97bd0e29db67daf4ce0bd5a"
+    }
+  },
+  "endurance": {},
+  "target_recording_only_trace": {
+    "exe_sha256": "fcfe4cb736b538ef55a09914a898097485aa37c72f93a0b15d31feddecd9cf50",
+    "interval_s": 5,
+    "samples": 50,
+    "observed_sockets": 0,
+    "observed_recognizer_or_model_modules": 0,
+    "observed_children": [
+      "conhost.exe"
+    ],
+    "providers": {
+      "winhttp": {
+        "target_events": 0,
+        "control_events": 17,
+        "events_lost": 0,
+        "buffers_lost": 0
+      },
+      "afd": {
+        "target_events": 0,
+        "control_events": 61,
+        "events_lost": 0,
+        "buffers_lost": 0
+      }
+    }
+  },
+  "instrumented_relay": {
+    "realtime": {
+      "mode": "realtime",
+      "enqueue_calls": 2400,
+      "capture_allocations": 0,
+      "capture_bytes": 0,
+      "startup_allocations": 12,
+      "startup_gross_bytes": 2474023,
+      "p95_enqueue_ns": 10300,
+      "max_enqueue_ns": 234000,
+      "accepted_source_frames": 1152000,
+      "reported_gap_frames": 0,
+      "tap_queue_high_water": 2
+    },
+    "saturated": {
+      "tap_queue_high_water": 512,
+      "mode": "saturated",
+      "enqueue_calls": 200000,
+      "capture_allocations": 0,
+      "capture_bytes": 0,
+      "startup_allocations": 12,
+      "startup_gross_bytes": 2474023,
+      "p95_enqueue_ns": 100,
+      "max_enqueue_ns": 520600,
+      "accepted_source_frames": 1232160,
+      "reported_gap_frames": 94767840
+    }
+  },
+  "native_window": {
+    "fresh-v2": {
+      "build_sha256": "6235cd7e09139343c55caaed0528b29e764008a1b4d73a9098d983c5694a2676",
+      "stage": "fresh-v2",
+      "elapsed_s": 10.078839099995093,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 30040064,
+      "peak_stage_sampled_ws_bytes": 30040064,
+      "initial_ws_bytes": 30035968,
+      "final_ws_bytes": 30040064,
+      "max_private_bytes": 5378048,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "fresh-i4": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "fresh-i4",
+      "elapsed_s": 10.040517199988244,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 31023104,
+      "peak_stage_sampled_ws_bytes": 31023104,
+      "initial_ws_bytes": 31014912,
+      "final_ws_bytes": 31023104,
+      "max_private_bytes": 5804032,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "idle": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "idle",
+      "elapsed_s": 10.181877700000769,
+      "cpu_s": 2.296875,
+      "one_core_percent": 22.558461883703696,
+      "peak_lifetime_ws_bytes": 34168832,
+      "peak_stage_sampled_ws_bytes": 29614080,
+      "initial_ws_bytes": 29614080,
+      "final_ws_bytes": 29614080,
+      "max_private_bytes": 7987200,
+      "samples": 51,
+      "profile": "Isolated profile, operator desktop, synthetic test source"
+    },
+    "recording": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "recording",
+      "elapsed_s": 10.131534999993164,
+      "cpu_s": 3.796875,
+      "one_core_percent": 37.475811908092524,
+      "peak_lifetime_ws_bytes": 34168832,
+      "peak_stage_sampled_ws_bytes": 30674944,
+      "initial_ws_bytes": 30674944,
+      "final_ws_bytes": 30646272,
+      "max_private_bytes": 9142272,
+      "samples": 51,
+      "profile": "Isolated profile, operator desktop, synthetic test source"
+    },
+    "after-preview": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "after-preview",
+      "elapsed_s": 10.052497499986202,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 34471936,
+      "peak_stage_sampled_ws_bytes": 30240768,
+      "initial_ws_bytes": 30240768,
+      "final_ws_bytes": 30240768,
+      "max_private_bytes": 7950336,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Isolated profile, operator desktop, synthetic test source"
+    },
+    "successful-preview": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "preview-ok-193058-completed-success-preview",
+      "elapsed_s": 10.024637399998028,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 22872064,
+      "peak_stage_sampled_ws_bytes": 19529728,
+      "initial_ws_bytes": 19529728,
+      "final_ws_bytes": 19529728,
+      "max_private_bytes": 5537792,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "v2-initial-recording": {
+      "build_sha256": "6235cd7e09139343c55caaed0528b29e764008a1b4d73a9098d983c5694a2676",
+      "stage": "v2-m3-192759-initial-recording",
+      "elapsed_s": 10.02826210000785,
+      "cpu_s": 0.078125,
+      "one_core_percent": 0.7790482460559027,
+      "peak_lifetime_ws_bytes": 18259968,
+      "peak_stage_sampled_ws_bytes": 18259968,
+      "initial_ws_bytes": 18034688,
+      "final_ws_bytes": 18259968,
+      "max_private_bytes": 5402624,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.078125,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "v2-steady-recording": {
+      "build_sha256": "6235cd7e09139343c55caaed0528b29e764008a1b4d73a9098d983c5694a2676",
+      "stage": "v2-m3-192759-steady-recording",
+      "elapsed_s": 10.036732599997777,
+      "cpu_s": 0.078125,
+      "one_core_percent": 0.77839076832651,
+      "peak_lifetime_ws_bytes": 18259968,
+      "peak_stage_sampled_ws_bytes": 18259968,
+      "initial_ws_bytes": 18259968,
+      "final_ws_bytes": 18259968,
+      "max_private_bytes": 5402624,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.078125,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "v2-stopped": {
+      "build_sha256": "6235cd7e09139343c55caaed0528b29e764008a1b4d73a9098d983c5694a2676",
+      "stage": "v2-m3-192759-stopped",
+      "elapsed_s": 10.031459199992241,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 18325504,
+      "peak_stage_sampled_ws_bytes": 18059264,
+      "initial_ws_bytes": 18059264,
+      "final_ws_bytes": 18034688,
+      "max_private_bytes": 5099520,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "candidate-initial-recording": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "candidate-m2-192629-initial-recording",
+      "elapsed_s": 10.02284679999866,
+      "cpu_s": 0.375,
+      "one_core_percent": 3.741451979491995,
+      "peak_lifetime_ws_bytes": 20480000,
+      "peak_stage_sampled_ws_bytes": 19968000,
+      "initial_ws_bytes": 19017728,
+      "final_ws_bytes": 19869696,
+      "max_private_bytes": 6393856,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.03125,
+      "other_surviving_thread_cpu_s": 0.171875,
+      "window_thread_cpu_percent": 0.3117876649576663,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "candidate-steady-recording": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "candidate-m2-192629-steady-recording",
+      "elapsed_s": 10.026074599998537,
+      "cpu_s": 0.09375,
+      "one_core_percent": 0.9350618635932918,
+      "peak_lifetime_ws_bytes": 20480000,
+      "peak_stage_sampled_ws_bytes": 19869696,
+      "initial_ws_bytes": 19869696,
+      "final_ws_bytes": 19869696,
+      "max_private_bytes": 6303744,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.03125,
+      "other_surviving_thread_cpu_s": 0.0625,
+      "window_thread_cpu_percent": 0.3116872878644306,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    },
+    "candidate-stopped": {
+      "build_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31",
+      "stage": "candidate-m2-192629-stopped",
+      "elapsed_s": 10.026499999992666,
+      "cpu_s": 0.0,
+      "one_core_percent": 0.0,
+      "peak_lifetime_ws_bytes": 20480000,
+      "peak_stage_sampled_ws_bytes": 19361792,
+      "initial_ws_bytes": 19361792,
+      "final_ws_bytes": 19324928,
+      "max_private_bytes": 5672960,
+      "samples": 51,
+      "window_thread_identified": true,
+      "window_thread_cpu_s": 0.0,
+      "other_surviving_thread_cpu_s": 0.0,
+      "window_thread_cpu_percent": 0.0,
+      "profile": "Empty test profile and non-switched Windows desktop"
+    }
+  },
+  "native_window_paired": {
+    "scope": "Actual native recorder on a private Windows desktop; one selected quiet 600 Hz source, regular 32 kbps mono Opus, five alternately ordered pairs",
+    "v2_zip_sha256": "8ebfcefd74adfc52e6f3acae909fba5e0e8fe97c43fd65eaad4962625663e97d",
+    "candidate_zip_sha256": "9b4f0166aef9352c4250ee023c74b32f2072c0438a556134ce1245b873da4234",
+    "pairs": [
+      {
+        "pair": 1,
+        "build": "v2",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-1-initial-recording",
+            "elapsed_s": 10.018465599991032,
+            "cpu_s": 0.171875,
+            "one_core_percent": 1.7155820747655595,
+            "peak_lifetime_ws_bytes": 19099648,
+            "peak_stage_sampled_ws_bytes": 19099648,
+            "initial_ws_bytes": 18759680,
+            "final_ws_bytes": 19099648,
+            "max_private_bytes": 5476352,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.171875,
+            "window_thread_cpu_percent": 0.0
+          },
+          "steady-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-1-steady-recording",
+            "elapsed_s": 10.024082299991278,
+            "cpu_s": 0.09375,
+            "one_core_percent": 0.9352477084119867,
+            "peak_lifetime_ws_bytes": 19103744,
+            "peak_stage_sampled_ws_bytes": 19103744,
+            "initial_ws_bytes": 19099648,
+            "final_ws_bytes": 19103744,
+            "max_private_bytes": 5476352,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.078125,
+            "window_thread_cpu_percent": 0.15587461806866446
+          },
+          "stopped": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-1-stopped",
+            "elapsed_s": 10.029401699997834,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 19116032,
+            "peak_stage_sampled_ws_bytes": 18681856,
+            "initial_ws_bytes": 18681856,
+            "final_ws_bytes": 18681856,
+            "max_private_bytes": 4968448,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          },
+          "warm-restart": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-1-warm-restart",
+            "elapsed_s": 10.022917599999346,
+            "cpu_s": 0.171875,
+            "one_core_percent": 1.714820044016038,
+            "peak_lifetime_ws_bytes": 19116032,
+            "peak_stage_sampled_ws_bytes": 19066880,
+            "initial_ws_bytes": 19066880,
+            "final_ws_bytes": 19066880,
+            "max_private_bytes": 5525504,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.15625,
+            "window_thread_cpu_percent": 0.15589273127418526
+          }
+        },
+        "tone_600_hz": [
+          22.812,
+          23.228
+        ],
+        "overall_recording_cpu_percent": 1.325305551597232
+      },
+      {
+        "pair": 1,
+        "build": "candidate",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-1-initial-recording",
+            "elapsed_s": 10.025724499995704,
+            "cpu_s": 0.375,
+            "one_core_percent": 3.7403780644497133,
+            "peak_lifetime_ws_bytes": 20418560,
+            "peak_stage_sampled_ws_bytes": 19910656,
+            "initial_ws_bytes": 18898944,
+            "final_ws_bytes": 19820544,
+            "max_private_bytes": 6443008,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.046875,
+            "other_surviving_thread_cpu_s": 0.140625,
+            "window_thread_cpu_percent": 0.46754725805621417
+          },
+          "steady-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-1-steady-recording",
+            "elapsed_s": 10.024131400001352,
+            "cpu_s": 0.140625,
+            "one_core_percent": 1.4028646910991314,
+            "peak_lifetime_ws_bytes": 20418560,
+            "peak_stage_sampled_ws_bytes": 19824640,
+            "initial_ws_bytes": 19820544,
+            "final_ws_bytes": 19824640,
+            "max_private_bytes": 6275072,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.03125,
+            "other_surviving_thread_cpu_s": 0.109375,
+            "window_thread_cpu_percent": 0.3117477091331403
+          },
+          "stopped": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-1-stopped",
+            "elapsed_s": 10.02818729999126,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 20418560,
+            "peak_stage_sampled_ws_bytes": 19095552,
+            "initial_ws_bytes": 19095552,
+            "final_ws_bytes": 18976768,
+            "max_private_bytes": 5390336,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          },
+          "warm-restart": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-1-warm-restart",
+            "elapsed_s": 10.030652800007374,
+            "cpu_s": 0.15625,
+            "one_core_percent": 1.5577251362930749,
+            "peak_lifetime_ws_bytes": 21069824,
+            "peak_stage_sampled_ws_bytes": 20008960,
+            "initial_ws_bytes": 20008960,
+            "final_ws_bytes": 19922944,
+            "max_private_bytes": 6438912,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.140625,
+            "window_thread_cpu_percent": 0.1557725136293075
+          }
+        },
+        "tone_600_hz": [
+          23.081,
+          22.96
+        ],
+        "overall_recording_cpu_percent": 2.571714243592522
+      },
+      {
+        "pair": 2,
+        "build": "candidate",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-2-initial-recording",
+            "elapsed_s": 10.021153299996513,
+            "cpu_s": 0.3125,
+            "one_core_percent": 3.1184035474251126,
+            "peak_lifetime_ws_bytes": 20541440,
+            "peak_stage_sampled_ws_bytes": 20029440,
+            "initial_ws_bytes": 19234816,
+            "final_ws_bytes": 19927040,
+            "max_private_bytes": 6426624,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.125,
+            "window_thread_cpu_percent": 0.0
+          },
+          "steady-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-2-steady-recording",
+            "elapsed_s": 10.030044699989958,
+            "cpu_s": 0.171875,
+            "one_core_percent": 1.7136015355960685,
+            "peak_lifetime_ws_bytes": 20541440,
+            "peak_stage_sampled_ws_bytes": 19927040,
+            "initial_ws_bytes": 19927040,
+            "final_ws_bytes": 19927040,
+            "max_private_bytes": 6283264,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.15625,
+            "window_thread_cpu_percent": 0.15578195778146078
+          },
+          "stopped": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-2-stopped",
+            "elapsed_s": 10.032218899999862,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 20541440,
+            "peak_stage_sampled_ws_bytes": 19206144,
+            "initial_ws_bytes": 19206144,
+            "final_ws_bytes": 19165184,
+            "max_private_bytes": 5636096,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          23.548
+        ],
+        "overall_recording_cpu_percent": 2.4156910724253327
+      },
+      {
+        "pair": 2,
+        "build": "v2",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-2-initial-recording",
+            "elapsed_s": 10.026256800003466,
+            "cpu_s": 0.21875,
+            "one_core_percent": 2.181771366557501,
+            "peak_lifetime_ws_bytes": 18243584,
+            "peak_stage_sampled_ws_bytes": 18243584,
+            "initial_ws_bytes": 17907712,
+            "final_ws_bytes": 18243584,
+            "max_private_bytes": 5406720,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.03125,
+            "other_surviving_thread_cpu_s": 0.1875,
+            "window_thread_cpu_percent": 0.3116816237939287
+          },
+          "steady-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-2-steady-recording",
+            "elapsed_s": 10.02209130000847,
+            "cpu_s": 0.1875,
+            "one_core_percent": 1.8708670115571742,
+            "peak_lifetime_ws_bytes": 18243584,
+            "peak_stage_sampled_ws_bytes": 18243584,
+            "initial_ws_bytes": 18243584,
+            "final_ws_bytes": 18243584,
+            "max_private_bytes": 5406720,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.171875,
+            "window_thread_cpu_percent": 0.15590558429643117
+          },
+          "stopped": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-2-stopped",
+            "elapsed_s": 10.039862300007371,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 18255872,
+            "peak_stage_sampled_ws_bytes": 17965056,
+            "initial_ws_bytes": 17965056,
+            "final_ws_bytes": 17936384,
+            "max_private_bytes": 5042176,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          22.826
+        ],
+        "overall_recording_cpu_percent": 2.026351487780473
+      },
+      {
+        "pair": 3,
+        "build": "v2",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-3-initial-recording",
+            "elapsed_s": 10.025655599994934,
+            "cpu_s": 0.109375,
+            "one_core_percent": 1.0909510994977252,
+            "peak_lifetime_ws_bytes": 18227200,
+            "peak_stage_sampled_ws_bytes": 18227200,
+            "initial_ws_bytes": 17895424,
+            "final_ws_bytes": 18227200,
+            "max_private_bytes": 5394432,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.109375,
+            "window_thread_cpu_percent": 0.0
+          },
+          "steady-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-3-steady-recording",
+            "elapsed_s": 10.050327499993728,
+            "cpu_s": 0.078125,
+            "one_core_percent": 0.7773378529211984,
+            "peak_lifetime_ws_bytes": 18231296,
+            "peak_stage_sampled_ws_bytes": 18231296,
+            "initial_ws_bytes": 18227200,
+            "final_ws_bytes": 18231296,
+            "max_private_bytes": 5394432,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.09375,
+            "window_thread_cpu_percent": 0.0
+          },
+          "stopped": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-3-stopped",
+            "elapsed_s": 10.03148850001162,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 18243584,
+            "peak_stage_sampled_ws_bytes": 17981440,
+            "initial_ws_bytes": 17965056,
+            "final_ws_bytes": 17981440,
+            "max_private_bytes": 5173248,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          23.077
+        ],
+        "overall_recording_cpu_percent": 0.9339517724544503
+      },
+      {
+        "pair": 3,
+        "build": "candidate",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-3-initial-recording",
+            "elapsed_s": 10.019755499990424,
+            "cpu_s": 0.40625,
+            "one_core_percent": 4.0544901519841305,
+            "peak_lifetime_ws_bytes": 20242432,
+            "peak_stage_sampled_ws_bytes": 19865600,
+            "initial_ws_bytes": 18866176,
+            "final_ws_bytes": 19771392,
+            "max_private_bytes": 6377472,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.046875,
+            "other_surviving_thread_cpu_s": 0.171875,
+            "window_thread_cpu_percent": 0.46782578676739967
+          },
+          "steady-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-3-steady-recording",
+            "elapsed_s": 10.026034599999548,
+            "cpu_s": 0.296875,
+            "one_core_percent": 2.9610410480731173,
+            "peak_lifetime_ws_bytes": 20242432,
+            "peak_stage_sampled_ws_bytes": 19771392,
+            "initial_ws_bytes": 19771392,
+            "final_ws_bytes": 19771392,
+            "max_private_bytes": 6201344,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.03125,
+            "other_surviving_thread_cpu_s": 0.28125,
+            "window_thread_cpu_percent": 0.31168853137611763
+          },
+          "stopped": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-3-stopped",
+            "elapsed_s": 10.022298800002318,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 20242432,
+            "peak_stage_sampled_ws_bytes": 19083264,
+            "initial_ws_bytes": 19058688,
+            "final_ws_bytes": 19083264,
+            "max_private_bytes": 5787648,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          23.521
+        ],
+        "overall_recording_cpu_percent": 3.507594345210428
+      },
+      {
+        "pair": 4,
+        "build": "candidate",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-4-initial-recording",
+            "elapsed_s": 10.020173099997919,
+            "cpu_s": 0.3125,
+            "one_core_percent": 3.1187085979589004,
+            "peak_lifetime_ws_bytes": 20303872,
+            "peak_stage_sampled_ws_bytes": 19832832,
+            "initial_ws_bytes": 18821120,
+            "final_ws_bytes": 19742720,
+            "max_private_bytes": 6348800,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.03125,
+            "other_surviving_thread_cpu_s": 0.109375,
+            "window_thread_cpu_percent": 0.3118708597958901
+          },
+          "steady-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-4-steady-recording",
+            "elapsed_s": 10.021034899997176,
+            "cpu_s": 0.0625,
+            "one_core_percent": 0.6236880783642178,
+            "peak_lifetime_ws_bytes": 20303872,
+            "peak_stage_sampled_ws_bytes": 19750912,
+            "initial_ws_bytes": 19742720,
+            "final_ws_bytes": 19750912,
+            "max_private_bytes": 6176768,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0625,
+            "window_thread_cpu_percent": 0.0
+          },
+          "stopped": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-4-stopped",
+            "elapsed_s": 10.023044200002914,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 20303872,
+            "peak_stage_sampled_ws_bytes": 19079168,
+            "initial_ws_bytes": 19079168,
+            "final_ws_bytes": 19021824,
+            "max_private_bytes": 5369856,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          22.864
+        ],
+        "overall_recording_cpu_percent": 1.871144693474025
+      },
+      {
+        "pair": 4,
+        "build": "v2",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-4-initial-recording",
+            "elapsed_s": 10.039017500006594,
+            "cpu_s": 0.1875,
+            "one_core_percent": 1.8677126521582101,
+            "peak_lifetime_ws_bytes": 18235392,
+            "peak_stage_sampled_ws_bytes": 18235392,
+            "initial_ws_bytes": 17903616,
+            "final_ws_bytes": 18235392,
+            "max_private_bytes": 5410816,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.171875,
+            "window_thread_cpu_percent": 0.1556427210131842
+          },
+          "steady-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-4-steady-recording",
+            "elapsed_s": 10.042929700008244,
+            "cpu_s": 0.125,
+            "one_core_percent": 1.244656726013898,
+            "peak_lifetime_ws_bytes": 18239488,
+            "peak_stage_sampled_ws_bytes": 18239488,
+            "initial_ws_bytes": 18235392,
+            "final_ws_bytes": 18239488,
+            "max_private_bytes": 5410816,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.125,
+            "window_thread_cpu_percent": 0.0
+          },
+          "stopped": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-4-stopped",
+            "elapsed_s": 10.044936599995708,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 18251776,
+            "peak_stage_sampled_ws_bytes": 17956864,
+            "initial_ws_bytes": 17956864,
+            "final_ws_bytes": 17952768,
+            "max_private_bytes": 5144576,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          22.887
+        ],
+        "overall_recording_cpu_percent": 1.5561239997671596
+      },
+      {
+        "pair": 5,
+        "build": "v2",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-5-initial-recording",
+            "elapsed_s": 10.057778800008236,
+            "cpu_s": 0.1875,
+            "one_core_percent": 1.8642287102182686,
+            "peak_lifetime_ws_bytes": 18186240,
+            "peak_stage_sampled_ws_bytes": 18186240,
+            "initial_ws_bytes": 17862656,
+            "final_ws_bytes": 18186240,
+            "max_private_bytes": 5373952,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.1875,
+            "window_thread_cpu_percent": 0.0
+          },
+          "steady-recording": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-5-steady-recording",
+            "elapsed_s": 10.03123069999856,
+            "cpu_s": 0.171875,
+            "one_core_percent": 1.7133989351877301,
+            "peak_lifetime_ws_bytes": 18186240,
+            "peak_stage_sampled_ws_bytes": 18186240,
+            "initial_ws_bytes": 18186240,
+            "final_ws_bytes": 18186240,
+            "max_private_bytes": 5373952,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.15625,
+            "window_thread_cpu_percent": 0.15576353956252093
+          },
+          "stopped": {
+            "build_sha256": "2002f8eeb98bf418898f6e634af4d0ef44621afc11114996520c667fc7457adb",
+            "stage": "v2-matched-gui-5-stopped",
+            "elapsed_s": 10.034941599995364,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 18198528,
+            "peak_stage_sampled_ws_bytes": 17924096,
+            "initial_ws_bytes": 17924096,
+            "final_ws_bytes": 17891328,
+            "max_private_bytes": 5046272,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          22.679
+        ],
+        "overall_recording_cpu_percent": 1.788913485256097
+      },
+      {
+        "pair": 5,
+        "build": "candidate",
+        "window_w": 900,
+        "window_h": 700,
+        "stages": {
+          "initial-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-5-initial-recording",
+            "elapsed_s": 10.021673199997167,
+            "cpu_s": 0.328125,
+            "one_core_percent": 3.2741538608552188,
+            "peak_lifetime_ws_bytes": 20340736,
+            "peak_stage_sampled_ws_bytes": 19902464,
+            "initial_ws_bytes": 18862080,
+            "final_ws_bytes": 19812352,
+            "max_private_bytes": 6438912,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.140625,
+            "window_thread_cpu_percent": 0.0
+          },
+          "steady-recording": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-5-steady-recording",
+            "elapsed_s": 10.047126599994954,
+            "cpu_s": 0.09375,
+            "one_core_percent": 0.933102604679502,
+            "peak_lifetime_ws_bytes": 20340736,
+            "peak_stage_sampled_ws_bytes": 19816448,
+            "initial_ws_bytes": 19812352,
+            "final_ws_bytes": 19816448,
+            "max_private_bytes": 6279168,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.015625,
+            "other_surviving_thread_cpu_s": 0.09375,
+            "window_thread_cpu_percent": 0.15551710077991698
+          },
+          "stopped": {
+            "build_sha256": "96b6a9c65825006e2f1ac494ce110c6c726c739dee7b142ceb8a43935ba38fbe",
+            "stage": "candidate-matched-gui-5-stopped",
+            "elapsed_s": 10.042331500008004,
+            "cpu_s": 0.0,
+            "one_core_percent": 0.0,
+            "peak_lifetime_ws_bytes": 20340736,
+            "peak_stage_sampled_ws_bytes": 19087360,
+            "initial_ws_bytes": 19087360,
+            "final_ws_bytes": 19087360,
+            "max_private_bytes": 5705728,
+            "samples": 51,
+            "window_thread_identified": true,
+            "window_thread_cpu_s": 0.0,
+            "other_surviving_thread_cpu_s": 0.0,
+            "window_thread_cpu_percent": 0.0
+          }
+        },
+        "tone_600_hz": [
+          22.96
+        ],
+        "overall_recording_cpu_percent": 2.102143646877008
+      }
+    ]
+  },
+  "native_input_latency": {
+    "samples_ms": [
+      0.5347,
+      0.8912,
+      0.516,
+      0.4668,
+      0.5898,
+      1.1448,
+      1.5239,
+      0.5975,
+      0.4923,
+      0.4687,
+      1.2445,
+      1.438,
+      0.5409,
+      1.9818,
+      0.5913,
+      1.42,
+      0.455,
+      0.5812,
+      0.5121,
+      0.5688,
+      0.4276,
+      0.4566,
+      0.4637,
+      0.4735
+    ],
+    "median_ms": 0.5548500000000001,
+    "p95_ms": 1.5239,
+    "maximum_ms": 1.9818,
+    "observer_gettext_p95_ms": 1.4225,
+    "observer_poll_start_gap_p95_ms": 0.1835,
+    "perf_counter_resolution_seconds": 1e-07,
+    "requests_during_measurement": 1,
+    "stall_confirmed_ms": 2234.1715,
+    "native_input": "Asynchronous Win32 WM_COMMAND with BN_CLICKED and the pause button HWND",
+    "observer": "Cross-thread synchronous WM_GETTEXT with 1 ms requested polling sleep",
+    "desktop": "Private Win32 desktop object and isolated LOCALAPPDATA",
+    "selected_generated_sources": 2,
+    "threshold_p95_ms": 100,
+    "pass": true,
+    "recorder_sha256": "69ab0e0a149ce4b129b73e4c4aeb1214dce8b10f6665ad87750423f8fdb53a31"
+  }
+}

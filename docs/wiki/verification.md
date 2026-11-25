@@ -12,9 +12,12 @@ Run these PowerShell commands from the repository's `rust` directory on Windows 
 | Controller and launch | `cargo test --release --locked --bin audio-capture native_controller`, `cargo test --release --locked --bin audio-capture worker_launch` | [Controller tests](../../rust/src/native_controller.rs), [launch and arguments](../../rust/src/worker_launch.rs) |
 | Routing and capture timing | `cargo test --release --locked --lib sources::tests`, `cargo test --release --locked --lib capture::tests` | [Route tests](../../rust/src/sources.rs), [identity and clock tests](../../rust/src/capture.rs) |
 | Mixing, source loss, and markers | `cargo test --release --locked --lib record::tests`, `cargo test --release --locked --lib markers::tests` | [Timeline and session tests](../../rust/src/record.rs), [marker sidecar tests](../../rust/src/markers.rs) |
+| Live wire and slow worker | `cargo test --release --locked --lib live_wire::` | [Framing, loss, and stop tests](../../rust/src/live_wire.rs) |
 | WAV and other codecs | `cargo test --release --locked --lib encode::tests`, `cargo test --release --locked --lib opus_writer::tests` | [Resampling and rollover](../../rust/src/encode.rs), [Opus decoding and interruption](../../rust/src/opus_writer.rs) |
 | Profile behavior and setup compatibility | `cargo test --release --locked --lib prefs::tests` | [Profile matching, first run, and legacy imports](../../rust/src/prefs.rs) |
+| Recent program identity | `cargo test --release --locked --lib recent_programs::` | [Restart, ambiguity, invalidation, and persistence](../../rust/src/recent_programs.rs) |
 | Guided consent and job state | `cargo test --release --locked --bin transcribe guided::tests`, `cargo test --release --locked --bin transcribe jobs::tests` | [Prompt tests](../../rust/src/bin/transcribe/guided.rs), [cache and job tests](../../rust/src/bin/transcribe/jobs.rs) |
+| Live text and batch admission | `cargo test --release --locked --bin transcribe live::`, `cargo test --release --locked --bin transcribe batch_queue::` | [Live worker](../../rust/src/bin/transcribe/live.rs), [batch queue](../../rust/src/bin/transcribe/batch_queue.rs) |
 | HTTP and HTML review | `cargo test --release --locked --bin transcribe transport::tests`, `cargo test --release --locked --bin transcribe review::tests` | [Loopback mock tests](../../rust/src/bin/transcribe/transport.rs), [review rendering tests](../../rust/src/bin/transcribe/review.rs) |
 | Long-file conversion | `cargo test --release --locked --bin transcribe chunks::tests` | [Chunk offsets, cleanup, and FFmpeg](../../rust/src/bin/transcribe/chunks.rs) |
 | Speaker attribution and memory | `cargo test --release --locked --bin transcribe attribution::` | [Local worker](../../rust/src/bin/transcribe/attribution) |
@@ -32,6 +35,25 @@ cargo test --release --locked --test recording an_exited_source_keeps_the_other_
 ```
 
 Use a physical microphone for microphone acceptance. Exercise the extracted package for picker, console, and sibling launch behavior. Record which endpoint and build each check used. [Recorder verification notes](../../openspec/changes/rewrite-windows-recorder/tasks.md) · [Integration verification notes](../../openspec/changes/integrate-recorder-and-transcription/tasks.md)
+
+## Live transcription checks
+
+Build both release executables before you test the recorder. Select a program with generated speech and, when available, a test microphone. Use a local endpoint. Check that **Stop recording** keeps text active and **Stop transcription** keeps audio active. Start a new interval while the prior output finalizes. Confirm **Stop both** uses one cutoff.
+
+Use the extracted worker and a loopback mock to check committed text, independent source IDs, bounded stop, batch admission, and interruption recovery. Use the mock to verify request and cache behavior. Run recognition and diarization qualification with the pinned models and reference calls. [Acceptance plan](../../openspec/changes/add-independent-live-transcription/acceptance.md)
+
+From `rust`, run `python -B tools/test_live_worker.py PATH\transcribe.exe` with the extracted worker. The check uses generated audio and an isolated local endpoint. [Loopback worker tests](../../rust/tools/test_live_worker.py)
+
+Run the Windows playback integration on a working playback endpoint. The test plays two generated process tones and uses a local mock endpoint. Set the worker path to the extracted executable. Set `AUDIO_CAPTURE_LIVE_TEST_OUT` if you need a specific evidence folder. [Playback integration](../../rust/tests/live_session.rs)
+
+```powershell
+$env:AUDIO_CAPTURE_LIVE_TEST_WORKER = 'C:\path\to\extracted\transcribe.exe'
+cargo test --release --locked --test live_session live_session_real_windows_acceptance -- --ignored --nocapture
+```
+
+Check the bitrate and sample rate labels at each target width and DPI. Test focus and horizontal overlap while both activities run. Confirm a nearby status announces waiting, recording, and completed output without announcing every word. [Native UI requirements](../../openspec/changes/add-independent-live-transcription/specs/live-recorder-interface/spec.md)
+
+Record the hardware, fixture identity, endpoint timing, and build for resource measurements. Keep capture and worker results tied to the measured workload. [Live performance procedures](../benchmarks/live-performance.md)
 
 ## Package and evidence
 

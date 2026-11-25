@@ -4,11 +4,25 @@
 
 ## Entry point and consent
 
-1. While idle, the recorder enables **Transcribe files…**. The native picker accepts multiple files and uses the worker's shared extension list. Canceling the picker ends the action. [Controller](../../rust/src/native_controller.rs) · [Extension list](../../rust/src/lib.rs)
+1. Select **Transcribe files…** during idle or capture. The native picker accepts multiple completed files and uses the worker's shared extension list. Canceling the picker ends the action. [Controller](../../rust/src/native_controller.rs) · [Extension list](../../rust/src/lib.rs)
 2. The recorder starts its sibling `transcribe.exe` in a separate interactive console. It passes `--guided --` followed by one argument per selected path. [Worker launcher](../../rust/src/worker_launch.rs)
 3. Guided mode asks for the destination, model, output folder, and optional API key environment variable name. It shows the selected paths and effective settings. Only a complete affirmative answer at the final prompt starts the batch. [Guided prompts](../../rust/src/bin/transcribe/guided.rs)
 
-Scripted mode starts eligible work on invocation. It takes options from arguments and reads any bearer token from the named environment variable. The recorder itself makes zero transcription requests during recording. [Worker entry point](../../rust/src/bin/transcribe/main.rs) · [Integration specification](../../openspec/changes/integrate-recorder-and-transcription/specs/manual-transcription/spec.md)
+Scripted mode starts eligible work on invocation. It takes options from arguments and reads any bearer token from the named environment variable. Recording alone starts no speech worker or recognition request. [Worker entry point](../../rust/src/bin/transcribe/main.rs) · [Integration specification](../../openspec/changes/add-independent-live-transcription/specs/manual-transcription/spec.md)
+
+## Live text and batch scheduling
+
+The recorder opens a worker after the user approves the scope. The worker admits one live interval and then reads versioned frames over its inherited stdin pipe. The wire uses stable session and interval IDs, numbered sources and 48 kHz source offsets. The recorder's relay converts per-source stereo audio to mono PCM16 outside the capture thread. The worker reports status through stdout. [Wire and bounded relay](../../rust/src/live_wire.rs) · [Live worker](../../rust/src/bin/transcribe/live.rs)
+
+Each frame starts with `ACL1`, a one-byte kind, and a little-endian `u32` payload length. Kind 0 contains a UTF-8 JSON control event of up to 64 KiB. Kind 1 contains a little-endian source `u16`, first frame `u64`, and up to 4,800 signed PCM16 samples. The Start event binds ordered sources to the approved session ID, interval ID, and initial frame. Gap, timing, speaker, overlap, and end events carry positions on the same clock.
+
+The worker groups samples into bounded WAV requests. It stages the WAV in memory. During capture it records requests, completed text, and gaps under `%LOCALAPPDATA%\AudioCaptureRust\live-v1`. The readable `transcript.partial.txt` grows as results commit. Stopping transcription seals the interval and starts finalization. [Live cache](../../rust/src/bin/transcribe/live/cache.rs) · [Live transcript and recovery guide](../live-transcription.md)
+
+The version 1 JSONL index starts with a `begin` event that binds the session, interval, and initial source frame. Sequence numbers order events. Request, speech, gap, and skip events identify ranges by source, start frame, and exclusive end frame. Recording events identify saved audio intervals. A checkpoint tracks the durable text and journal offsets. An end event stores the cutoff and incomplete status. [Journal](../../rust/src/bin/transcribe/live/cache/journal.rs)
+
+Guided batches persist in `%LOCALAPPDATA%\AudioCaptureRust\batch-queue`. Admission leases limit live and batch requests across the GUI and its guided consoles. Live intervals reserve capacity. Batch state holds the credential variable name. The active process reads its value from the environment. [Queue implementation](../../rust/src/bin/transcribe/batch_queue.rs) · [Queue rules](../../openspec/changes/add-independent-live-transcription/specs/transcription-batch-queue/spec.md)
+
+The default admission limits allow one request overall and one per destination. For controlled deployments, set `total` and `per_destination` in `batch-queue/admission/limits.json`. Check the configured endpoint's capacity before raising limits. Scripted recognition that starts outside a guided batch retains its standalone request behavior.
 
 ## Transfer and local state
 
@@ -32,7 +46,7 @@ Resume with the same output folder, source paths and bytes, destination, model, 
 
 ## Speaker attribution and memory
 
-Speaker commands use completed audio and recognition artifacts. They run in the companion worker on request. The native recorder launches no speaker model. Use the operator procedure to prepare, attribute, review, and export a session. [Speaker workflow](../speaker-workflow.md)
+The operator can prepare, attribute, review, and export a session using completed audio and recognition artifacts. These commands run in the companion worker on request. [Speaker workflow](../speaker-workflow.md)
 
 | Concern | Implementation |
 | --- | --- |

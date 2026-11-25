@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "endpoint": "https://api.openai.com/v1",
+  "model": "whisper-1",
+  "api_key_env": "OPENAI_API_KEY",
+  "transcript_output_folder": "",
+  "request_segment_timestamps": true,
+  "speech_gating": false,
+  "speaker_labels": false,
+  "speaker_adapter_config": ""
+}

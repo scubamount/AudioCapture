@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="496" viewBox="0 0 800 496" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, sans-serif">
+<title id="title">Speaker labels on held-out calls</title>
+<desc id="desc">Separate tracks, Completed file. 8.00% diarization error. 90.91% isolated-turn recall. Separate tracks, Live prototype, 24 s history. 29.86% diarization error. 72.73% isolated-turn recall. Single mix, Completed file. 32.14% diarization error. 72.73% isolated-turn recall. Single mix, Live prototype, 24 s history. 45.42% diarization error. 54.55% isolated-turn recall.</desc>
+<metadata>Audio Capture benchmark. Aggregate data: ../../benchmarks/data.json. Methods and tables: ../../benchmarks/README.md.</metadata>
+<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#edeaf0"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke="#765e80" stroke-width="1.4"/></pattern></defs>
+<rect x="0.00" y="0.00" width="800.00" height="496.00" fill="#faf9f5"/>
+<text x="32.00" y="48.00" fill="#172e35" font-size="30" font-weight="700" text-anchor="start">Speaker labels on held-out calls</text>
+<text x="32.00" y="80.00" fill="#465961" font-size="18" font-weight="400" text-anchor="start">4 synthetic English calls  ·  160 seconds</text>
+<rect x="32.00" y="105.00" width="22.00" height="12.00" fill="#00685f"/>
+<text x="63.00" y="117.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Completed file</text>
+<rect x="206.00" y="105.00" width="22.00" height="12.00" fill="url(#hatch)"/>
+<text x="237.00" y="117.00" fill="#172e35" font-size="16" font-weight="400" text-anchor="start">Live prototype, 24 s history</text>
+<text x="32.00" y="155.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">Diarization error</text>
+<text x="670.00" y="155.00" fill="#465961" font-size="16" font-weight="400" text-anchor="end">Lower is better</text>
+<line x1="207.00" y1="188.00" x2="207.00" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="207.00" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0%</text>
+<line x1="299.60" y1="188.00" x2="299.60" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="299.60" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">20%</text>
+<line x1="392.20" y1="188.00" x2="392.20" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="392.20" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">40%</text>
+<line x1="484.80" y1="188.00" x2="484.80" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="484.80" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">60%</text>
+<line x1="577.40" y1="188.00" x2="577.40" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="577.40" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80%</text>
+<line x1="670.00" y1="188.00" x2="670.00" y2="287.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="670.00" y="181.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">100%</text>
+<text x="32.00" y="223.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Separate tracks</text>
+<rect x="207.00" y="204.00" width="37.02" height="12.00" fill="#00685f"/>
+<text x="253.02" y="215.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">8.00%</text>
+<rect x="207.00" y="222.00" width="138.24" height="12.00" fill="url(#hatch)"/>
+<text x="354.24" y="233.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">29.86%</text>
+<text x="32.00" y="271.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Single mix</text>
+<rect x="207.00" y="252.00" width="148.79" height="12.00" fill="#00685f"/>
+<text x="364.79" y="263.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">32.14%</text>
+<rect x="207.00" y="270.00" width="210.27" height="12.00" fill="url(#hatch)"/>
+<text x="426.27" y="281.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">45.42%</text>
+<text x="32.00" y="310.00" fill="#172e35" font-size="20" font-weight="700" text-anchor="start">Isolated-turn recall</text>
+<text x="670.00" y="310.00" fill="#465961" font-size="16" font-weight="400" text-anchor="end">Higher is better</text>
+<line x1="207.00" y1="343.00" x2="207.00" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="207.00" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">0%</text>
+<line x1="299.60" y1="343.00" x2="299.60" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="299.60" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">20%</text>
+<line x1="392.20" y1="343.00" x2="392.20" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="392.20" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">40%</text>
+<line x1="484.80" y1="343.00" x2="484.80" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="484.80" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">60%</text>
+<line x1="577.40" y1="343.00" x2="577.40" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="577.40" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">80%</text>
+<line x1="670.00" y1="343.00" x2="670.00" y2="442.00" stroke="#b9c6c6" stroke-width="1"/>
+<text x="670.00" y="336.00" fill="#465961" font-size="14" font-weight="400" text-anchor="middle">100%</text>
+<text x="32.00" y="378.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Separate tracks</text>
+<rect x="207.00" y="359.00" width="420.91" height="12.00" fill="#00685f"/>
+<text x="636.91" y="370.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">90.91%</text>
+<rect x="207.00" y="377.00" width="336.73" height="12.00" fill="url(#hatch)"/>
+<text x="552.73" y="388.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">72.73%</text>
+<text x="32.00" y="426.00" fill="#172e35" font-size="16" font-weight="700" text-anchor="start">Single mix</text>
+<rect x="207.00" y="407.00" width="336.73" height="12.00" fill="#00685f"/>
+<text x="552.73" y="418.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">72.73%</text>
+<rect x="207.00" y="425.00" width="252.55" height="12.00" fill="url(#hatch)"/>
+<text x="468.55" y="436.00" fill="#172e35" font-size="15" font-weight="700" text-anchor="start">54.55%</text>
+<text x="32.00" y="472.00" fill="#465961" font-size="16" font-weight="400" text-anchor="start">Both modes used the same reference speaker times and scoring rules.</text>
+</svg>

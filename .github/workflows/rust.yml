@@ -83,17 +83,20 @@ jobs:
         run: cargo test --locked --offline --release
       - name: Build the portable ZIP
         run: python -B tools/package.py --output "$env:RUNNER_TEMP/dist/AudioCapture-Rust-Windows-x64.zip"
-      - name: Verify the packaged worker and write its ZIP checksum
+      - name: Verify the public ZIP and write its checksum
         run: |
           $zip = Get-Item "$env:RUNNER_TEMP/dist/AudioCapture-Rust-Windows-x64.zip"
           $unpacked = Join-Path $env:RUNNER_TEMP 'Audio Capture smoke'
-          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $unpacked
+          python -B tools/check_package.py $zip.FullName $unpacked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $worker = Join-Path $unpacked 'transcribe.exe'
           $version = & $worker --version
           if ($LASTEXITCODE -ne 0 -or "$version" -cne "transcribe $env:PACKAGE_VERSION") { throw "Unexpected version: $version" }
           $help = & $worker --help
           if ($LASTEXITCODE -ne 0 -or !($help -match 'Usage: transcribe')) { throw 'Missing worker help.' }
           python -B tools/check_release.py "$worker"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/test_live_worker.py "$worker"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $digest = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$($zip.DirectoryName)/SHA256SUMS.txt", "$digest  $($zip.Name)`n")
