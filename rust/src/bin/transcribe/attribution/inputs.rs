@@ -617,21 +617,62 @@ fn plain(text: String) -> Recognition {
     r
 }
 
+fn directory_spelling(path: &Path) -> Option<String> {
+    let name = path.to_str()?.replace('/', "\\").to_lowercase();
+    Some(match name.strip_prefix(r"\\?\unc\") {
+        Some(unc) => format!(r"\\{unc}"),
+        None => name.strip_prefix(r"\\?\").unwrap_or(&name).to_owned(),
+    })
+}
+
+fn short_directory_name(root: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+    let root: Vec<_> = root.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Ask Windows for aliases of the trusted root only. Never resolve a
+    // receipt-supplied path, which could point to an unrelated network share.
+    let size = unsafe { GetShortPathNameW(root.as_ptr(), std::ptr::null_mut(), 0) };
+    if size == 0 {
+        return None;
+    }
+    let mut short = vec![0; size as usize];
+    let written = unsafe { GetShortPathNameW(root.as_ptr(), short.as_mut_ptr(), size) };
+    (written > 0 && written < size)
+        .then(|| std::ffi::OsString::from_wide(&short[..written as usize]).into())
+}
+
+fn matches_directory_names(stored: &str, long: &str, short: &str) -> bool {
+    let mut long = long.split('\\');
+    let mut short = short.split('\\');
+    stored
+        .split('\\')
+        .all(|component| match (long.next(), short.next()) {
+            (Some(l), Some(s)) => component == l || component == s,
+            _ => false,
+        })
+        && long.next().is_none()
+        && short.next().is_none()
+}
+
+fn same_output_directory(root: &Path, stored: &Path) -> bool {
+    let (Some(root_name), Some(stored_name)) =
+        (directory_spelling(root), directory_spelling(stored))
+    else {
+        return false;
+    };
+    root_name == stored_name
+        || short_directory_name(root)
+            .and_then(|short| directory_spelling(&short))
+            .is_some_and(|short| matches_directory_names(&stored_name, &root_name, &short))
+}
+
 /// A cached job may refer only to outputs in its own output directory. A
 /// provider response containing similarly named properties is data, not a job.
 fn state_output(root: &Path, raw: &Value, extension: &str) -> Result<PathBuf, String> {
     let path = Path::new(raw.as_str().ok_or("Job does not name an output artifact")?);
-    // Validate the stored parent before resolving it. A damaged receipt must
-    // never cause a lookup on another drive or network share.
     let parent = path.parent().ok_or("Missing job output directory")?;
-    fn spelling(path: &Path) -> String {
-        let name = path.to_string_lossy().replace('/', "\\");
-        if let Some(unc) = name.strip_prefix(r"\\?\UNC\") {
-            return format!(r"\\{unc}").to_lowercase();
-        }
-        name.strip_prefix(r"\\?\").unwrap_or(&name).to_lowercase()
-    }
-    if !parent.as_os_str().is_empty() && spelling(root) != spelling(parent) {
+    if !parent.as_os_str().is_empty() && !same_output_directory(root, parent) {
         return Err("Job output is outside its local output directory".into());
     }
     let local = root.join(path.file_name().ok_or("Missing job output filename")?);
@@ -942,6 +983,42 @@ mod tests {
         assert_eq!(r.spans[0].labels, ["s"]);
         assert_eq!(r.spans[1].start_ms, Some(400));
         assert!(r.spans[1].labels.is_empty());
+    }
+
+    #[test]
+    fn receipt_directory_can_mix_known_long_and_short_components() {
+        let long = r"c:\users\runneradmin\appdata\local\temp\recognition-test-output";
+        let short = r"c:\users\runner~1\appdata\local\temp\recogn~1";
+        let mixed = directory_spelling(Path::new(
+            r"\\?\C:\Users\RUNNER~1\AppData\Local\Temp\recognition-test-output",
+        ))
+        .unwrap();
+        assert!(matches_directory_names(&mixed, long, short));
+        assert!(matches_directory_names(short, long, short));
+        for outside in [
+            r"c:\users\runner~2\appdata\local\temp\recognition-test-output",
+            r"c:\users\runner~1\appdata\local\temp\recogn~1\child",
+            r"c:\users\runner~1\appdata\local\temp",
+            r"d:\users\runner~1\appdata\local\temp\recogn~1",
+        ] {
+            assert!(!matches_directory_names(outside, long, short));
+        }
+    }
+
+    #[test]
+    fn outside_receipt_cannot_select_a_local_file_with_the_same_name() {
+        let local = std::env::current_exe().unwrap().canonicalize().unwrap();
+        let root = local.parent().unwrap();
+        let name = local.file_name().unwrap();
+        assert_eq!(state_output(root, &json!(local), "exe").unwrap(), local);
+        for outside in [
+            root.join("unrelated"),
+            root.join(".."),
+            PathBuf::from(r"\\untrusted.invalid\share"),
+        ] {
+            let error = state_output(root, &json!(outside.join(name)), "exe").unwrap_err();
+            assert_eq!(error, "Job output is outside its local output directory");
+        }
     }
 
     #[test]
